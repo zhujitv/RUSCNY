@@ -67,6 +67,22 @@ test('homepage promotes the launched AI summary workflow without the obsolete pr
   assert.match(source, /不通过群发抄送公开他人地址/);
 });
 
+test('homepage lazily loads the matching Chinese or Russian promotional film', async () => {
+  const [home, source] = await Promise.all([
+    readFile(new URL('index.html', directory), 'utf8'),
+    readFile(new URL('app.js', directory), 'utf8'),
+  ]);
+
+  assert.match(home, /class="promo-film-video"/);
+  assert.match(home, /preload="none"/);
+  assert.match(home, /data-src-zh="https:\/\/media\.ruscny\.net\/RUSCNY-homepage-promo-zh\.mp4"/);
+  assert.match(home, /data-src-ru="https:\/\/media\.ruscny\.net\/RUSCNY-homepage-promo-ru\.mp4"/);
+  assert.doesNotMatch(home, /<video[^>]*\sautoplay/);
+  assert.match(source, /IntersectionObserver/);
+  assert.match(source, /promoFilm\.dataset\.srcRu/);
+  assert.match(source, /promoFilm\.dataset\.srcZh/);
+});
+
 test('public website uses neutral participant labels and flags both languages', async () => {
   const [home, source, accountSource] = await Promise.all([
     readFile(new URL('index.html', directory), 'utf8'),

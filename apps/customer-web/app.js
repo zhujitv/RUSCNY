@@ -8,6 +8,7 @@ const translations = {
     getApp: '获取应用', browserJoin: '浏览器直接参会', trustOne: '🇨🇳 中文 ⇄ 🇷🇺 俄语', trustTwo: '注册与临时参会', trustThree: '会议级权限隔离',
     demoTitle: '项目沟通会', live: '实时', participants: '参会者 · 5', demoChineseTeam: '中方项目组 · 🇨🇳 中文', demoRussianTeam: '俄方项目组 · 🇷🇺 Русский', companyZh: '中方采购组 · 🇨🇳 中文', companyZh2: '中方技术组 · 🇨🇳 中文', demoChineseTeamShort: '中方项目组', demoRussianTeamShort: '俄方项目组', bridgeChineseAttribution: '王伟 · 中方项目组', bridgeRussianAttribution: 'Ван Вэй · 中方项目组', speakingNow: '王伟正在发言', demoZh: '这批设备计划下周发往莫斯科。', demoCn: '请确认装箱单。', holdTalk: '按住说话', releaseSend: '松开后提交翻译', floatingIdentity: '每段内容\n保留发言归属', floatingReconnect: '断线重连\n自动补齐消息',
     builtFor: '适用于', proofTrade: '中俄贸易洽谈', proofFactory: '工厂与客户沟通', proofRemote: '远程项目会议', proofVisit: '商务考察与接待',
+    filmEyebrow: '一分钟了解 RUSCNY', filmTitle: '看见一次完整的\n中俄沟通如何发生。', filmLead: '从进入会议、实时互译到会后纪要，用一段短片了解 RUSCNY 如何帮助中俄团队把每次沟通说清楚、记完整。', filmVersion: '中文版宣传片 · 约 1 分钟', filmLoadHint: '进入此区域后才准备视频；点击播放时开始传输。', filmAria: '播放 RUSCNY 中文版宣传片',
     featuresEyebrow: '不仅是翻译，更是完整的会议协作', featuresTitle: '从开口到会后记录，\n每一步都有清楚的上下文。', featuresLead: '为真实的跨国团队沟通设计，不用猜“这句话是谁说的”，也不用在多个设备之间手工整理记录。',
     featureMeetingTitle: '多人实时翻译会议', featureMeetingText: '一名主持人和多名注册或临时参会者同时进入。每个人使用自己的手机发言和查看翻译。',
     featureIdentityTitle: '明确的发言者身份', featureIdentityText: '姓名、公司、语言和发言时间与每条消息永久绑定，改名后也不会影响旧记录。',
@@ -58,6 +59,7 @@ const translations = {
     getApp: 'Получить приложение', browserJoin: 'Войти через браузер', trustOne: '🇨🇳 中文 ⇄ 🇷🇺 Русский', trustTwo: 'Аккаунты и гости', trustThree: 'Изоляция каждой встречи',
     demoTitle: 'Рабочая встреча', live: 'В эфире', participants: 'Участники · 5', demoChineseTeam: 'Китайская команда · 🇨🇳 中文', demoRussianTeam: 'Российская команда · 🇷🇺 Русский', companyZh: 'Закупки Китая · 🇨🇳 中文', companyZh2: 'Техническая группа Китая · 🇨🇳 中文', demoChineseTeamShort: 'Китайская команда', demoRussianTeamShort: 'Российская команда', bridgeChineseAttribution: 'Ван Вэй · Китайская команда', bridgeRussianAttribution: 'Ван Вэй · Китайская команда', speakingNow: 'Сейчас говорит Ван Вэй', demoZh: 'Эту партию оборудования планируется отправить в Москву на следующей неделе.', demoCn: '请确认装箱单。', holdTalk: 'Удерживайте для речи', releaseSend: 'Отпустите для перевода', floatingIdentity: 'Каждая реплика\nсохранена с автором', floatingReconnect: 'Переподключение\nвосстановит сообщения',
     builtFor: 'Для задач', proofTrade: 'Торговые переговоры', proofFactory: 'Завод и заказчик', proofRemote: 'Удалённые проекты', proofVisit: 'Деловые визиты',
+    filmEyebrow: 'RUSCNY за одну минуту', filmTitle: 'Посмотрите, как проходит\nвстреча на двух языках.', filmLead: 'Короткий фильм показывает весь путь: вход во встречу, перевод в реальном времени и итоговый протокол для китайско-российской команды.', filmVersion: 'Русская версия · около 1 минуты', filmLoadHint: 'Видео подготавливается только при появлении этого блока; передача начинается после нажатия «Воспроизвести».', filmAria: 'Воспроизвести презентационный фильм RUSCNY на русском языке',
     featuresEyebrow: 'Не только перевод, а полноценная совместная работа', featuresTitle: 'От первой реплики до протокола —\nвсё сохраняет контекст.', featuresLead: 'Создано для реальной международной команды: не нужно угадывать автора реплики или вручную собирать записи с разных устройств.',
     featureMeetingTitle: 'Групповой перевод в реальном времени', featureMeetingText: 'Один организатор и несколько зарегистрированных или временных участников. Каждый говорит и видит перевод на своём телефоне.',
     featureIdentityTitle: 'Точный автор каждой реплики', featureIdentityText: 'Имя, компания, язык и время навсегда связаны с сообщением. Изменение профиля не меняет историю.',
@@ -111,6 +113,20 @@ const initialLocale = (() => {
   return navigator.language.toLowerCase().startsWith('ru') ? 'ru' : 'zh';
 })();
 
+const promoFilm = document.querySelector('.promo-film-video');
+let promoFilmVisible = false;
+
+function updatePromoFilm(locale) {
+  if (!promoFilm) return;
+  const selected = normalizeLocale(locale);
+  const nextSource = selected === 'ru' ? promoFilm.dataset.srcRu : promoFilm.dataset.srcZh;
+  promoFilm.setAttribute('aria-label', translations[selected].filmAria);
+  if (!promoFilmVisible || !nextSource || promoFilm.getAttribute('src') === nextSource) return;
+  promoFilm.pause();
+  promoFilm.setAttribute('src', nextSource);
+  promoFilm.load();
+}
+
 function applyLocale(locale) {
   const selected = normalizeLocale(locale);
   const dictionary = translations[selected];
@@ -122,6 +138,7 @@ function applyLocale(locale) {
     element.style.whiteSpace = dictionary[key].includes('\n') ? 'pre-line' : '';
   });
   document.querySelectorAll('.locale-select').forEach((select) => { select.value = selected; });
+  updatePromoFilm(selected);
   if (document.body.dataset.page === 'privacy') document.title = `${dictionary.privacyTitle}｜RUSCNY`;
   else if (document.body.dataset.page === 'terms') document.title = `${dictionary.termsTitle}｜RUSCNY`;
   else if (document.body.dataset.page === 'account') document.title = `${dictionary.accountAction}｜RUSCNY`;
@@ -149,4 +166,18 @@ if (menuButton && menu) {
 
 const year = document.querySelector('#year');
 if (year) year.textContent = String(new Date().getFullYear());
+
+if (promoFilm) {
+  if ('IntersectionObserver' in globalThis) {
+    const filmObserver = new IntersectionObserver((entries, observer) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      promoFilmVisible = true;
+      updatePromoFilm(document.documentElement.lang === 'ru' ? 'ru' : 'zh');
+      observer.disconnect();
+    }, { rootMargin: '240px 0px' });
+    filmObserver.observe(promoFilm);
+  } else {
+    promoFilmVisible = true;
+  }
+}
 applyLocale(initialLocale);
