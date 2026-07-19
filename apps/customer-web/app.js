@@ -1,6 +1,7 @@
 const translations = {
   zh: {
     skip: '跳到主要内容', brandTag: '中俄实时翻译', menu: '打开菜单', language: '界面语言',
+    servicePreview: '官网前台已开放；注册、登录和会议服务正在准备中。', previewEyebrow: '官网前台预发布', unavailableTitle: '账号与会议服务正在准备中', unavailableLead: '官网已经开放浏览。注册、登录和浏览器参会将在正式服务端完成部署后开放。', backHome: '返回官网',
     navFeatures: '核心功能', navMeeting: '多人会议', navWorkflow: '使用方式', navSecurity: '安全与记录', navDownload: '下载', navAccount: '账号', accountAction: '注册 / 登录', registerAccount: '免费注册', joinMeeting: '加入会议',
     heroEyebrow: '为中俄商务交流而设计', heroTitle: '语言不同，\n会议依然清楚。', heroLead: '多人进入同一个翻译会议。每个人按住说话，所有设备实时看到发言者、原文和译文，会后还能完整回看与导出。',
     getApp: '获取应用', browserJoin: '浏览器直接参会', trustOne: '中文 ⇄ 俄语', trustTwo: '注册与临时参会', trustThree: '会议级权限隔离',
@@ -43,6 +44,7 @@ const translations = {
   },
   ru: {
     skip: 'Перейти к содержанию', brandTag: 'Перевод между китайским и русским', menu: 'Открыть меню', language: 'Язык интерфейса',
+    servicePreview: 'Сайт уже открыт; регистрация, вход и встречи пока готовятся.', previewEyebrow: 'Предварительный запуск сайта', unavailableTitle: 'Сервис аккаунтов и встреч готовится', unavailableLead: 'Информационный сайт уже доступен. Регистрация, вход и участие через браузер откроются после запуска сервера.', backHome: 'Вернуться на сайт',
     navFeatures: 'Возможности', navMeeting: 'Групповые встречи', navWorkflow: 'Как это работает', navSecurity: 'Безопасность', navDownload: 'Скачать', navAccount: 'Аккаунт', accountAction: 'Регистрация / вход', registerAccount: 'Регистрация', joinMeeting: 'Войти во встречу',
     heroEyebrow: 'Создано для российско-китайского бизнеса', heroTitle: 'Разные языки.\nПонятная встреча.', heroLead: 'Несколько участников входят в одну встречу. Каждый говорит со своего телефона, а все устройства сразу показывают автора, оригинал и перевод. После встречи доступна полная история и экспорт.',
     getApp: 'Получить приложение', browserJoin: 'Войти через браузер', trustOne: '中文 ⇄ Русский', trustTwo: 'Аккаунты и гости', trustThree: 'Изоляция каждой встречи',

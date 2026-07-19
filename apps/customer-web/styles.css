@@ -32,6 +32,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .section-block { padding-top: 126px; padding-bottom: 126px; }
 
 .site-header { position: sticky; z-index: 50; top: 0; border-bottom: 1px solid rgb(214 225 218 / 82%); background: rgb(244 247 243 / 88%); backdrop-filter: blur(18px); }
+.service-banner { min-height:42px; padding:9px 20px; display:flex; align-items:center; justify-content:center; gap:9px; border-bottom:1px solid #e6d9ad; background:#fff9e8; color:#715b28; font-size:12px; text-align:center; }
+.service-banner span { width:8px; height:8px; flex:0 0 auto; border-radius:50%; background:#d7a52d; box-shadow:0 0 0 4px rgb(215 165 45 / 12%); }
+.service-banner p { margin:0; }
 .nav-shell { width: min(calc(100% - 40px), 1260px); min-height: 76px; margin: 0 auto; display: flex; align-items: center; gap: 34px; }
 .brand { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 11px; text-decoration: none; }
 .brand-mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px; background: linear-gradient(145deg, #1a5d4d, #0c352d); box-shadow: 0 10px 24px rgb(16 63 53 / 22%); color: #fff; font-family: Georgia, serif; font-size: 12px; font-weight: 800; letter-spacing: -.03em; }
@@ -190,6 +193,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .session-actions { margin-top:28px; display:grid; grid-template-columns:1fr 1fr; gap:9px; }.logout-button { margin-top:18px; padding:8px; border:0; background:transparent; color:#7b8982; font-size:11px; text-decoration:underline; text-underline-offset:3px; }
 .account-footer { padding:23px 0; border-top:1px solid #d9e3dd; color:#7d8b84; font-size:10px; }.account-footer > div { display:flex; justify-content:space-between; gap:20px; }.account-footer a { color:var(--forest-3); }
 
+.unavailable-page { min-height:100vh; background:radial-gradient(circle at 18% 18%,#d9eee4 0,transparent 34%),linear-gradient(135deg,#f4f7f3,#eaf2ed); }
+.unavailable-shell { width:min(calc(100% - 40px),920px); min-height:100vh; margin:0 auto; padding:48px 0; display:grid; grid-template-rows:auto 1fr; }
+.unavailable-card { max-width:680px; margin:auto; padding:58px; border:1px solid #d4e1da; border-radius:28px; background:rgb(255 255 255 / 90%); box-shadow:var(--shadow); }
+.unavailable-mark { width:54px; height:54px; margin-bottom:28px; display:grid; place-items:center; border-radius:16px; background:var(--mint); color:var(--forest-3); font-size:22px; font-weight:850; letter-spacing:.08em; }
+.unavailable-card h1 { margin:0; color:var(--forest); font-size:clamp(38px,5vw,58px); line-height:1.08; letter-spacing:-.055em; }
+.unavailable-card > p:not(.eyebrow) { max-width:570px; margin:22px 0 30px; color:var(--muted); font-size:16px; line-height:1.8; }
+
 @media (max-width: 1120px) {
   .main-nav { gap:17px; }.main-nav a { font-size:12px; }
   .nav-actions .button-quiet { display:none; }
@@ -226,6 +236,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .final-actions { width:100%; display:grid; }.account-nav { min-height:68px; }.account-nav .brand-copy { display:none; }.account-nav > div { gap:10px; }.account-main { width:min(calc(100% - 28px),700px); padding-top:48px; padding-bottom:70px; gap:44px; }.account-intro h1 { font-size:42px; }.account-benefits { grid-template-columns:1fr; }.account-benefits li { grid-template-columns:37px 1fr; }.auth-card { min-height:0; padding:23px 18px; border-radius:20px; }.choice-grid { grid-template-columns:1fr; }.session-actions { grid-template-columns:1fr; }.profile-list div { grid-template-columns:100px 1fr; }
   .footer-links { grid-template-columns:1fr 1fr; }.footer-bottom { flex-direction:column; }
   .legal-nav { min-height:68px; }.legal-nav .brand-copy { display:none; }.legal-nav > div { gap:10px; }.legal-main { padding-top:55px; padding-bottom:80px; }.legal-content { padding:26px 22px; }.legal-aside h1 { font-size:34px; }
+  .service-banner { padding-inline:14px; align-items:flex-start; font-size:11px; line-height:1.55; }.service-banner span { margin-top:4px; }.unavailable-shell { width:min(calc(100% - 28px),920px); padding:28px 0; }.unavailable-card { padding:36px 24px; }.unavailable-card h1 { font-size:40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

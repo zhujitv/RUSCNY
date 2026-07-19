@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const directory = new URL('./', import.meta.url);
-const pageNames = ['index.html', 'account.html', 'privacy.html', 'terms.html'];
+const pageNames = ['index.html', 'account.html', 'privacy.html', 'terms.html', 'unavailable.html'];
 
 async function translations() {
   const source = await readFile(new URL('app.js', directory), 'utf8');
@@ -66,6 +66,7 @@ test('account page submits the complete registered-user profile to same-origin a
   assert.match(source, /'\/v1\/auth\/login'/);
   assert.match(source, /'\/v1\/auth\/refresh'/);
   assert.match(source, /'\/v1\/auth\/logout'/);
+  assert.match(source, /SERVICE_PREPARING/);
   assert.match(source, /storageSet\(sessionStorage, storageKeys\.session/);
   assert.match(source, /storageSet\(localStorage, storageKeys\.device/);
 });

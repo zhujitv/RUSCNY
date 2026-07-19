@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /account
+Disallow: /register
+Disallow: /login
+Disallow: /admin
+Disallow: /join
+Sitemap: https://www.ruscny.net/sitemap.xml

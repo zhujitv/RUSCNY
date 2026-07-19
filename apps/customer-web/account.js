@@ -22,13 +22,13 @@
       loading: '正在提交…', restoring: '正在恢复当前网页账号…', registered: '注册成功，账号已建立。', loggedIn: '登录成功。',
       requiredName: '请输入姓名或显示名称。', invalidEmail: '请输入有效邮箱。', invalidPassword: '密码必须为 8 至 128 位。', mismatch: '两次输入的密码不一致。', consent: '请先阅读并同意用户协议和隐私政策。',
       EMAIL_EXISTS: '该邮箱已注册，请直接登录。', INVALID_CREDENTIALS: '邮箱或密码错误。', RATE_LIMITED: '操作过于频繁，请稍后再试。', VALIDATION_ERROR: '填写内容不符合要求，请检查后重试。', ACCOUNT_DISABLED: '账号不存在或已停用。',
-      network: '无法连接服务器，请检查网络后重试。', generic: '暂时无法完成操作，请稍后重试。', notSet: '未填写', chinese: '中文', russian: 'Русский', loggingOut: '正在退出…'
+      SERVICE_PREPARING: '账号服务正在准备中，当前不会创建账号。正式开放后即可注册或登录。', network: '无法连接服务器，请检查网络后重试。', generic: '暂时无法完成操作，请稍后重试。', notSet: '未填写', chinese: '中文', russian: 'Русский', loggingOut: '正在退出…'
     },
     ru: {
       loading: 'Отправка…', restoring: 'Восстанавливаем вход…', registered: 'Регистрация завершена. Аккаунт создан.', loggedIn: 'Вход выполнен.',
       requiredName: 'Укажите имя или отображаемое имя.', invalidEmail: 'Введите корректный email.', invalidPassword: 'Пароль должен содержать от 8 до 128 символов.', mismatch: 'Пароли не совпадают.', consent: 'Сначала примите условия использования и политику конфиденциальности.',
       EMAIL_EXISTS: 'Этот email уже зарегистрирован. Выполните вход.', INVALID_CREDENTIALS: 'Неверный email или пароль.', RATE_LIMITED: 'Слишком много попыток. Повторите позже.', VALIDATION_ERROR: 'Проверьте заполненные данные и повторите попытку.', ACCOUNT_DISABLED: 'Аккаунт не найден или отключён.',
-      network: 'Не удалось подключиться к серверу. Проверьте сеть.', generic: 'Не удалось выполнить операцию. Повторите позже.', notSet: 'Не указано', chinese: '中文', russian: 'Русский', loggingOut: 'Выход…'
+      SERVICE_PREPARING: 'Сервис аккаунтов пока готовится. Сейчас аккаунт не будет создан. Регистрация и вход откроются после запуска.', network: 'Не удалось подключиться к серверу. Проверьте сеть.', generic: 'Не удалось выполнить операцию. Повторите позже.', notSet: 'Не указано', chinese: '中文', russian: 'Русский', loggingOut: 'Выход…'
     }
   };
 
@@ -117,8 +117,9 @@
     let payload = null;
     try { payload = await response.json(); } catch (_) { /* A stable fallback is shown below. */ }
     if (!response.ok || !payload?.ok) {
-      const error = new Error(apiError(payload?.code));
-      error.code = payload?.code || 'REQUEST_FAILED';
+      const code = payload?.code || ([404, 500, 502, 503].includes(response.status) ? 'SERVICE_PREPARING' : 'REQUEST_FAILED');
+      const error = new Error(apiError(code));
+      error.code = code;
       error.status = response.status;
       throw error;
     }
