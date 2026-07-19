@@ -1,9 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": null,
-  "installCommand": null,
-  "outputDirectory": "apps/customer-web",
+  "buildCommand": "node ../../scripts/prepare-vercel-site.mjs",
+  "outputDirectory": "public",
   "cleanUrls": false,
   "rewrites": [
     { "source": "/account", "destination": "/account.html" },
