@@ -41,10 +41,26 @@ describe('public Fastify surface without realtime or database queries', () => {
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(response.headers['content-security-policy']).toContain("media-src https://media.ruscny.net");
+    expect(response.body).toContain('src="/logo-mark.svg"');
     expect(response.body).toContain('RUSCNY');
     expect(response.body).toContain('中俄实时语音翻译');
     expect(response.body).toContain('/privacy');
     expect(response.body).toContain('/terms');
+  });
+
+  it('serves the official vector logo assets', async () => {
+    app = await buildApp({ logger: false, realtime: false });
+    const [mark, lockup] = await Promise.all([
+      app.inject({ method: 'GET', url: '/logo-mark.svg' }),
+      app.inject({ method: 'GET', url: '/logo-lockup.svg' }),
+    ]);
+
+    for (const response of [mark, lockup]) {
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toContain('image/svg+xml');
+      expect(response.body).toContain('<svg');
+      expect(response.body).toContain('RUSCNY');
+    }
   });
 
   it('permanently redirects the apex domain to the canonical www origin', async () => {

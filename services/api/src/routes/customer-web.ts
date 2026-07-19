@@ -11,6 +11,8 @@ interface CustomerSiteAssets {
   script: string;
   accountScript: string;
   styles: string;
+  logoMark: string;
+  logoLockup: string;
   og: Buffer;
 }
 
@@ -53,6 +55,8 @@ export async function registerCustomerWebRoutes(app: FastifyInstance): Promise<v
     script: await readFile(new URL('app.js', siteDirectory), 'utf8'),
     accountScript: await readFile(new URL('account.js', siteDirectory), 'utf8'),
     styles: await readFile(new URL('styles.css', siteDirectory), 'utf8'),
+    logoMark: await readFile(new URL('assets/logo-mark.svg', siteDirectory), 'utf8'),
+    logoLockup: await readFile(new URL('assets/logo-lockup.svg', siteDirectory), 'utf8'),
     og: await readFile(new URL('og.png', siteDirectory)),
   };
 
@@ -68,6 +72,10 @@ export async function registerCustomerWebRoutes(app: FastifyInstance): Promise<v
     assetHeaders(reply, 'text/javascript; charset=utf-8').send(assets.accountScript));
   app.get('/site.css', async (_request, reply) =>
     assetHeaders(reply, 'text/css; charset=utf-8').send(assets.styles));
+  app.get('/logo-mark.svg', async (_request, reply) =>
+    assetHeaders(reply, 'image/svg+xml; charset=utf-8').send(assets.logoMark));
+  app.get('/logo-lockup.svg', async (_request, reply) =>
+    assetHeaders(reply, 'image/svg+xml; charset=utf-8').send(assets.logoLockup));
   app.get('/og.png', async (_request, reply) => reply
     .header('Cache-Control', 'public, max-age=86400, immutable')
     .header('X-Content-Type-Options', 'nosniff')

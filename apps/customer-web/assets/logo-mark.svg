@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">RUSCNY</title>
+  <desc id="desc">Two connected speech forms surrounding a live audio waveform.</desc>
+  <path fill="#103f35" d="M5 13 21 4l7 4-13 8v24l10 6-8 5v9L5 52V13Z"/>
+  <path fill="#26715e" d="m59 13-16-9-7 4 13 8v24l-10 6 8 5v9l12-8V13Z"/>
+  <g fill="#c7e17f">
+    <rect x="19" y="29" width="4" height="7" rx="2"/>
+    <rect x="25" y="24" width="4" height="17" rx="2"/>
+    <rect x="31" y="19" width="4" height="27" rx="2"/>
+    <rect x="37" y="24" width="4" height="17" rx="2"/>
+    <rect x="43" y="29" width="4" height="7" rx="2"/>
+  </g>
+</svg>
