@@ -72,6 +72,18 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
       : false,
   });
 
+  const canonicalPublicOrigin = new URL(config.PUBLIC_APP_URL).origin;
+  const canonicalPublicHostname = new URL(canonicalPublicOrigin).hostname.toLowerCase();
+  const apexPublicHostname = canonicalPublicHostname.startsWith('www.')
+    ? canonicalPublicHostname.slice(4)
+    : undefined;
+  if (apexPublicHostname) {
+    app.addHook('onRequest', async (request, reply) => {
+      if (request.hostname.toLowerCase() !== apexPublicHostname) return;
+      await reply.redirect(`${canonicalPublicOrigin}${request.raw.url ?? request.url}`, 308);
+    });
+  }
+
   let rateLimitRedis: Redis | undefined;
   if (config.REDIS_URL) {
     const candidate = new Redis(config.REDIS_URL, {

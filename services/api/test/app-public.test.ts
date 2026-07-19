@@ -46,6 +46,35 @@ describe('public Fastify surface without realtime or database queries', () => {
     expect(response.body).toContain('/terms');
   });
 
+  it('permanently redirects the apex domain to the canonical www origin', async () => {
+    app = await buildApp({ logger: false, realtime: false });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/join/browser_invite_token_1234567890?source=qr',
+      headers: { host: 'ruscny.net' },
+    });
+
+    expect(response.statusCode).toBe(308);
+    expect(response.headers.location).toBe(
+      'https://www.ruscny.net/join/browser_invite_token_1234567890?source=qr',
+    );
+  });
+
+  it('does not redirect Railway health checks or the canonical www domain', async () => {
+    app = await buildApp({ logger: false, realtime: false });
+    const [railwayHealth, canonicalHome] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { host: 'api-production-639d.up.railway.app' },
+      }),
+      app.inject({ method: 'GET', url: '/', headers: { host: 'www.ruscny.net' } }),
+    ]);
+
+    expect(railwayHealth.statusCode).toBe(200);
+    expect(canonicalHome.statusCode).toBe(200);
+  });
+
   it('keeps service metadata available at the versioned API root', async () => {
     app = await buildApp({ logger: false, realtime: false });
     const response = await app.inject({ method: 'GET', url: '/v1' });
