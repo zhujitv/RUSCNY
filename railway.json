@@ -6,6 +6,7 @@
     "watchPatterns": [
       "services/api/**",
       "apps/admin-web/**",
+      "apps/customer-web/**",
       "deploy/deep-links/site/join/**",
       "package.json",
       "package-lock.json",

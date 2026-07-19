@@ -31,6 +31,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/services/api/dist ./services/api/dist
 COPY apps/admin-web ./apps/admin-web
+COPY apps/customer-web ./apps/customer-web
 COPY deploy/deep-links/site/join ./deploy/deep-links/site/join
 RUN mkdir -p /app/storage/audio && chown -R node:node /app/storage
 USER node
@@ -47,6 +48,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/services/api/dist ./services/api/dist
 COPY apps/admin-web ./apps/admin-web
+COPY apps/customer-web ./apps/customer-web
 COPY deploy/deep-links/site/join ./deploy/deep-links/site/join
 RUN mkdir -p /app/storage/audio && chown -R node:node /app/storage
 USER node
