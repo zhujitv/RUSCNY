@@ -28,6 +28,8 @@ apps
 apps/*
 !apps/admin-web/
 !apps/admin-web/**
+!apps/customer-web/
+!apps/customer-web/**
 deploy/*
 !deploy/deep-links/
 deploy/deep-links/*
