@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Translator Server Console</title>
+  <link rel="stylesheet" href="/admin/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
+  <main id="loginView" class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark" aria-hidden="true">中<span>RU</span></div>
+      <p class="eyebrow">TOOYEI TRANSLATOR</p>
+      <h1 data-i18n="loginTitle">服务器管理后台</h1>
+      <p class="muted" data-i18n="loginHint">请使用已授权的正式账号登录。管理员权限由服务器校验。</p>
+      <form id="loginForm" autocomplete="on">
+        <label>
+          <span data-i18n="email">邮箱</span>
+          <input id="loginEmail" type="email" autocomplete="username" required>
+        </label>
+        <label>
+          <span data-i18n="password">密码</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" minlength="8" required>
+        </label>
+        <button class="primary full" type="submit" data-i18n="signIn">登录管理后台</button>
+      </form>
+      <div class="login-footer">
+        <label class="language-picker">
+          <span data-i18n="language">语言</span>
+          <select class="languageSelect" aria-label="Language">
+            <option value="zh">中文</option>
+            <option value="ru">Русский</option>
+          </select>
+        </label>
+        <span id="loginStatus" class="status-text" role="status"></span>
+      </div>
+    </section>
+  </main>
+
+  <div id="consoleView" class="console-shell hidden">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark small" aria-hidden="true">中<span>RU</span></div>
+        <div><strong>Translator</strong><small>Server Console</small></div>
+      </div>
+      <nav id="nav" aria-label="Console navigation">
+        <button class="nav-button active" data-view="overview"><span>◫</span><span data-i18n="overview">概览</span></button>
+        <button class="nav-button" data-view="users"><span>◎</span><span data-i18n="users">用户管理</span></button>
+        <button class="nav-button" data-view="conversations"><span>◉</span><span data-i18n="meetings">会议管理</span></button>
+        <button class="nav-button" data-view="audit"><span>≋</span><span data-i18n="audit">审计记录</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="adminIdentity" class="admin-identity"></div>
+        <button id="logoutButton" class="ghost full" type="button" data-i18n="logout">退出登录</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" data-i18n="systemOperations">SYSTEM OPERATIONS</p>
+          <h1 id="pageTitle" data-i18n="overview">概览</h1>
+        </div>
+        <div class="top-actions">
+          <label class="language-picker compact">
+            <span class="sr-only" data-i18n="language">语言</span>
+            <select class="languageSelect" aria-label="Language">
+              <option value="zh">中文</option>
+              <option value="ru">Русский</option>
+            </select>
+          </label>
+          <button id="refreshButton" class="ghost" type="button" data-i18n="refresh">刷新</button>
+        </div>
+      </header>
+
+      <section id="view-overview" class="view-panel">
+        <div id="overviewCards" class="metric-grid" aria-live="polite"></div>
+        <div class="split-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow" data-i18n="usage30">LAST 30 DAYS</p><h2 data-i18n="translationUsage">翻译用量</h2></div>
+            </div>
+            <div id="usageMetrics" class="usage-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow" data-i18n="recentErrors">RECENT ERRORS</p><h2 data-i18n="failureOverview">失败概览</h2></div>
+            </div>
+            <div id="errorMetrics" class="error-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-users" class="view-panel hidden">
+        <section class="panel">
+          <form id="userFilters" class="filters">
+            <input id="userSearch" type="search" maxlength="200" data-i18n-placeholder="searchUsers" placeholder="搜索姓名、公司、邮箱或电话">
+            <select id="userStatus">
+              <option value="" data-i18n="nonDeleted">未注销</option>
+              <option value="ACTIVE" data-i18n="active">正常</option>
+              <option value="DISABLED" data-i18n="disabled">已停用</option>
+              <option value="DELETED" data-i18n="deleted">已注销</option>
+            </select>
+            <button class="primary" type="submit" data-i18n="search">查询</button>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th data-i18n="identity">用户</th><th data-i18n="adminPermission">管理权限</th><th data-i18n="status">状态</th>
+                <th data-i18n="lastSeen">最近活动</th><th data-i18n="devices">设备</th><th data-i18n="actions">操作</th>
+              </tr></thead>
+              <tbody id="usersBody"></tbody>
+            </table>
+          </div>
+          <div id="usersPagination" class="pagination"></div>
+        </section>
+      </section>
+
+      <section id="view-conversations" class="view-panel hidden">
+        <section class="panel">
+          <form id="conversationFilters" class="filters">
+            <input id="conversationSearch" type="search" maxlength="200" data-i18n-placeholder="searchMeetings" placeholder="搜索会议、主持人、客户或 ID">
+            <select id="conversationStatus">
+              <option value="" data-i18n="allStatuses">全部状态</option>
+              <option value="WAITING" data-i18n="waiting">等待中</option>
+              <option value="ACTIVE" data-i18n="inProgress">进行中</option>
+              <option value="ENDED" data-i18n="ended">已结束</option>
+              <option value="EXPIRED" data-i18n="expired">已过期</option>
+            </select>
+            <button class="primary" type="submit" data-i18n="search">查询</button>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th data-i18n="meeting">会议</th><th data-i18n="host">主持人</th><th data-i18n="status">状态</th>
+                <th data-i18n="participants">参会者</th><th data-i18n="messages">消息</th><th data-i18n="actions">操作</th>
+              </tr></thead>
+              <tbody id="conversationsBody"></tbody>
+            </table>
+          </div>
+          <div id="conversationsPagination" class="pagination"></div>
+        </section>
+      </section>
+
+      <section id="view-audit" class="view-panel hidden">
+        <section class="panel">
+          <div class="panel-heading"><div><p class="eyebrow" data-i18n="immutableTrail">IMMUTABLE TRAIL</p><h2 data-i18n="privilegedActions">管理操作记录</h2></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th data-i18n="time">时间</th><th data-i18n="operator">操作人</th><th data-i18n="action">动作</th><th data-i18n="target">对象</th><th data-i18n="details">详情</th></tr></thead>
+              <tbody id="auditBody"></tbody>
+            </table>
+          </div>
+          <div id="auditPagination" class="pagination"></div>
+        </section>
+      </section>
+    </section>
+  </div>
+
+  <dialog id="detailDialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-heading"><h2 id="dialogTitle"></h2><button class="icon-button" value="close" aria-label="Close">×</button></div>
+      <div id="dialogContent"></div>
+    </form>
+  </dialog>
+
+  <dialog id="resetDialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-heading"><h2 data-i18n="oneTimeReset">一次性密码重置</h2><button class="icon-button" value="close" aria-label="Close">×</button></div>
+      <p class="warning" data-i18n="resetWarning">该链接只显示一次。请通过受信渠道发送给用户，切勿写入工单或聊天群。</p>
+      <label><span data-i18n="resetLink">重置链接</span><textarea id="resetUrl" readonly rows="4"></textarea></label>
+      <div class="dialog-actions"><button id="copyResetUrl" class="primary" type="button" data-i18n="copyLink">复制链接</button><button class="ghost" value="close" data-i18n="close">关闭</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script type="module" src="/admin/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103f35">
+  <meta name="description" content="面向中俄商务沟通的实时语音翻译应用。支持多人会议、发言者归属、会议记录和中俄双语界面。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://www.ruscny.net/">
+  <meta property="og:title" content="中俄实时语音翻译｜让每一次跨语言会议清楚可追溯">
+  <meta property="og:description" content="多人进入同一个翻译会议，按住说话即可同步原文、译文和发言者身份。">
+  <meta property="og:image" content="https://www.ruscny.net/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>中俄实时语音翻译｜RUSCNY</title>
+  <link rel="canonical" href="https://www.ruscny.net/">
+  <link rel="stylesheet" href="/site.css">
+  <script src="/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="skip">跳到主要内容</a>
+
+  <header class="site-header" id="top">
+    <div class="nav-shell">
+      <a class="brand" href="/" aria-label="中俄实时翻译首页">
+        <span class="brand-mark" aria-hidden="true">中·RU</span>
+        <span class="brand-copy"><strong>RUSCNY</strong><small data-i18n="brandTag">中俄实时翻译</small></span>
+      </a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav">
+        <span class="sr-only" data-i18n="menu">打开菜单</span><i></i><i></i>
+      </button>
+      <nav class="main-nav" id="main-nav" aria-label="主导航">
+        <a href="#features" data-i18n="navFeatures">核心功能</a>
+        <a href="#meeting" data-i18n="navMeeting">多人会议</a>
+        <a href="#workflow" data-i18n="navWorkflow">使用方式</a>
+        <a href="#security" data-i18n="navSecurity">安全与记录</a>
+        <a href="#download" data-i18n="navDownload">下载</a>
+        <a href="/account" data-i18n="navAccount">账号</a>
+      </nav>
+      <div class="nav-actions">
+        <label class="locale-picker">
+          <span class="sr-only" data-i18n="language">界面语言</span>
+          <select class="locale-select" aria-label="界面语言">
+            <option value="zh">中文</option>
+            <option value="ru">Русский</option>
+          </select>
+        </label>
+        <a class="button button-small button-quiet" href="/account" data-i18n="accountAction">注册 / 登录</a>
+        <a class="button button-small button-dark" href="/join" data-i18n="joinMeeting">加入会议</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero section-shell">
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span><b data-i18n="heroEyebrow">为中俄商务交流而设计</b></p>
+        <h1 data-i18n="heroTitle">语言不同，<br>会议依然清楚。</h1>
+        <p class="hero-lead" data-i18n="heroLead">多人进入同一个翻译会议。每个人按住说话，所有设备实时看到发言者、原文和译文，会后还能完整回看与导出。</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/account" data-i18n="registerAccount">免费注册</a>
+          <a class="button button-quiet" href="#download" data-i18n="getApp">获取应用</a>
+          <a class="button button-quiet" href="/join"><span data-i18n="browserJoin">浏览器直接参会</span><span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="trust-row" aria-label="产品特点">
+          <span><i>✓</i><b data-i18n="trustOne">中文 ⇄ 俄语</b></span>
+          <span><i>✓</i><b data-i18n="trustTwo">注册与临时参会</b></span>
+          <span><i>✓</i><b data-i18n="trustThree">会议级权限隔离</b></span>
+        </div>
+      </div>
+
+      <div class="hero-product" aria-label="多人翻译会议界面示意">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="product-window">
+          <div class="window-bar">
+            <div class="window-brand"><span>中·RU</span><b data-i18n="demoTitle">项目沟通会</b></div>
+            <div class="live-pill"><i></i><span data-i18n="live">实时</span></div>
+          </div>
+          <div class="meeting-stage">
+            <aside class="people-rail">
+              <p data-i18n="participants">参会者 · 5</p>
+              <div class="person active"><span class="avatar zh">王</span><b>王伟<small>TOOYEI · 中文</small></b><i></i></div>
+              <div class="person"><span class="avatar ru">И</span><b>Иван<small>POLIVAN · Русский</small></b><i></i></div>
+              <div class="person"><span class="avatar pale">李</span><b>李明<small data-i18n="companyZh">采购部 · 中文</small></b><i></i></div>
+              <div class="person"><span class="avatar pale">赵</span><b>赵敏<small data-i18n="companyZh2">技术部 · 中文</small></b><i></i></div>
+            </aside>
+            <div class="speech-stream">
+              <div class="speaker-now"><span class="sound"><i></i><i></i><i></i></span><b data-i18n="speakingNow">王伟正在发言</b></div>
+              <article class="speech-card current">
+                <div class="speech-meta"><span class="avatar zh small">王</span><b>王伟<small>TOOYEI</small></b><time>10:24</time></div>
+                <p data-i18n="demoZh">这批设备计划下周发往莫斯科。</p>
+                <div class="translation"><span>RU</span><p>Эту партию оборудования планируется отправить в Москву на следующей неделе.</p></div>
+              </article>
+              <article class="speech-card">
+                <div class="speech-meta"><span class="avatar ru small">И</span><b>Иван<small>POLIVAN</small></b><time>10:25</time></div>
+                <p>Подтвердите, пожалуйста, упаковочный лист.</p>
+                <div class="translation"><span>中</span><p data-i18n="demoCn">请确认装箱单。</p></div>
+              </article>
+              <button class="talk-demo" type="button" tabindex="-1"><span></span><b data-i18n="holdTalk">按住说话</b><small data-i18n="releaseSend">松开后提交翻译</small></button>
+            </div>
+          </div>
+        </div>
+        <div class="floating-note note-left"><span>01</span><b data-i18n="floatingIdentity">每段内容<br>保留发言归属</b></div>
+        <div class="floating-note note-right"><span>02</span><b data-i18n="floatingReconnect">断线重连<br>自动补齐消息</b></div>
+      </div>
+    </section>
+
+    <section class="proof-strip" aria-label="适用场景">
+      <div class="section-shell proof-inner">
+        <p data-i18n="builtFor">适用于</p>
+        <span data-i18n="proofTrade">中俄贸易洽谈</span><i></i>
+        <span data-i18n="proofFactory">工厂与客户沟通</span><i></i>
+        <span data-i18n="proofRemote">远程项目会议</span><i></i>
+        <span data-i18n="proofVisit">商务考察与接待</span>
+      </div>
+    </section>
+
+    <section class="features section-shell section-block" id="features">
+      <div class="section-heading">
+        <p class="eyebrow"><span></span><b data-i18n="featuresEyebrow">不仅是翻译，更是完整的会议协作</b></p>
+        <h2 data-i18n="featuresTitle">从开口到会后记录，<br>每一步都有清楚的上下文。</h2>
+        <p data-i18n="featuresLead">为真实的跨国团队沟通设计，不用猜“这句话是谁说的”，也不用在多个设备之间手工整理记录。</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card feature-wide forest-card">
+          <div class="card-number">01</div>
+          <div><h3 data-i18n="featureMeetingTitle">多人实时翻译会议</h3><p data-i18n="featureMeetingText">一名主持人和多名注册或临时参会者同时进入。每个人使用自己的手机发言和查看翻译。</p></div>
+          <div class="mini-roster" aria-hidden="true"><span>王</span><span>李</span><span>赵</span><span>И</span><b>+2</b></div>
+        </article>
+        <article class="feature-card">
+          <div class="card-number">02</div>
+          <div class="line-icon identity-icon"><span></span><span></span><span></span></div>
+          <h3 data-i18n="featureIdentityTitle">明确的发言者身份</h3><p data-i18n="featureIdentityText">姓名、公司、语言和发言时间与每条消息永久绑定，改名后也不会影响旧记录。</p>
+        </article>
+        <article class="feature-card">
+          <div class="card-number">03</div>
+          <div class="line-icon wave-icon"><i></i><i></i><i></i><i></i><i></i></div>
+          <h3 data-i18n="featureVoiceTitle">按住说话，松开翻译</h3><p data-i18n="featureVoiceText">保留自然直观的操作方式，完成识别、翻译和译文语音播放。</p>
+        </article>
+        <article class="feature-card">
+          <div class="card-number">04</div>
+          <div class="line-icon link-icon"><span></span><span></span></div>
+          <h3 data-i18n="featureInviteTitle">多种邀请方式</h3><p data-i18n="featureInviteText">好友邀请、二维码、邀请链接和房间码同时保留，临时用户无需安装也能从浏览器加入。</p>
+        </article>
+        <article class="feature-card feature-wide mint-card">
+          <div class="card-number">05</div>
+          <div><h3 data-i18n="featureRecordTitle">记录、导出与会议纪要</h3><p data-i18n="featureRecordText">按时间或发言者查看完整内容，复制或导出 TXT、Markdown，并生成保留各方观点与负责人信息的会议纪要。</p></div>
+          <div class="file-stack" aria-hidden="true"><span>TXT</span><span>MD</span><span>纪要</span></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="meeting-section section-block" id="meeting">
+      <div class="section-shell meeting-inner">
+        <div class="meeting-copy">
+          <p class="eyebrow light"><span></span><b data-i18n="meetingEyebrow">一个房间，多方参与</b></p>
+          <h2 data-i18n="meetingTitle">中方四人、俄方一人，<br>也能像面对面一样有序。</h2>
+          <p data-i18n="meetingLead">每位参会者拥有独立身份和语言。主持人随时查看在线状态、邀请好友或移出人员；会议结束后立即转为只读。</p>
+          <ul class="check-list">
+            <li><span>✓</span><b data-i18n="meetingCheck1">注册用户与临时用户同时参会</b></li>
+            <li><span>✓</span><b data-i18n="meetingCheck2">在线、离线、离开和移出状态清晰</b></li>
+            <li><span>✓</span><b data-i18n="meetingCheck3">断线重连后顺序与身份不丢失</b></li>
+          </ul>
+        </div>
+        <div class="language-bridge" aria-label="中文和俄语双向翻译示意">
+          <div class="language-side cn"><span>中文</span><strong>我们确认<br>交货时间。</strong><small>王伟 · TOOYEI</small></div>
+          <div class="bridge-core"><i>中</i><span>⇄</span><i>RU</i><small data-i18n="instantTranslation">即时翻译</small></div>
+          <div class="language-side ru"><span>Русский</span><strong>Мы подтверждаем<br>срок поставки.</strong><small>Ван Вэй · TOOYEI</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="workflow section-shell section-block" id="workflow">
+      <div class="section-heading centered">
+        <p class="eyebrow"><span></span><b data-i18n="workflowEyebrow">三步开始沟通</b></p>
+        <h2 data-i18n="workflowTitle">不改变说话习惯，减少沟通成本。</h2>
+      </div>
+      <ol class="steps">
+        <li><span>01</span><div class="step-visual create-visual"><i></i><i></i><b>381 204</b></div><h3 data-i18n="step1Title">创建或加入会议</h3><p data-i18n="step1Text">通过好友邀请、二维码、链接或房间码进入。</p></li>
+        <li><span>02</span><div class="step-visual talk-visual"><i></i><b data-i18n="hold">按住</b></div><h3 data-i18n="step2Title">按住说话</h3><p data-i18n="step2Text">选择中文或俄语，松开后自动提交翻译。</p></li>
+        <li><span>03</span><div class="step-visual record-visual"><i></i><i></i><i></i></div><h3 data-i18n="step3Title">同步查看与保存</h3><p data-i18n="step3Text">所有设备实时显示，会后继续查看和导出。</p></li>
+      </ol>
+    </section>
+
+    <section class="security section-shell section-block" id="security">
+      <div class="security-panel">
+        <div class="security-copy">
+          <p class="eyebrow light"><span></span><b data-i18n="securityEyebrow">权限由服务端决定</b></p>
+          <h2 data-i18n="securityTitle">会议内容只属于<br>真正参与的人。</h2>
+          <p data-i18n="securityLead">客户端不能自行伪造身份或权限。所有消息、人员、历史、导出和纪要均按单次会议隔离。</p>
+          <a href="/privacy" class="text-link light-link"><span data-i18n="privacyLink">了解隐私与数据处理</span><span>→</span></a>
+        </div>
+        <div class="security-grid">
+          <article><span class="security-icon">ID</span><h3 data-i18n="securityIdentity">稳定参会身份</h3><p data-i18n="securityIdentityText">每位参会者拥有独立 participantId。</p></article>
+          <article><span class="security-icon">01</span><h3 data-i18n="securityIsolation">会议数据隔离</h3><p data-i18n="securityIsolationText">不同会议和企业的数据互不混合。</p></article>
+          <article><span class="security-icon">×</span><h3 data-i18n="securityRevoke">权限立即撤销</h3><p data-i18n="securityRevokeText">移出或结束后立即停止访问与发言。</p></article>
+          <article><span class="security-icon">↻</span><h3 data-i18n="securityReliable">可靠同步</h3><p data-i18n="securityReliableText">消息排序、去重、补拉和幂等提交。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="download section-shell section-block" id="download">
+      <div class="download-panel">
+        <div class="download-copy">
+          <p class="eyebrow"><span></span><b data-i18n="downloadEyebrow">随时开始中俄沟通</b></p>
+          <h2 data-i18n="downloadTitle">在手机上使用完整功能，<br>或从浏览器快速参会。</h2>
+          <p data-i18n="downloadLead">Android 与 iOS 正式版本将在应用商店开放。收到会议邀请的临时用户现在可以直接使用浏览器参会。</p>
+          <a class="text-link account-link" href="/account"><span data-i18n="accountAction">注册 / 登录</span><span>→</span></a>
+          <div class="store-row">
+            <span class="store-button disabled" aria-disabled="true"><i></i><b><small data-i18n="comingSoon">即将开放</small>App Store</b></span>
+            <span class="store-button disabled" aria-disabled="true"><i>▶</i><b><small data-i18n="comingSoon">即将开放</small>Google Play</b></span>
+            <a class="store-button active" href="/join"><i>◎</i><b><small data-i18n="noInstall">无需安装</small><span data-i18n="webMeeting">浏览器参会</span></b></a>
+          </div>
+        </div>
+        <div class="phone-card" aria-hidden="true">
+          <div class="phone-top"></div>
+          <div class="phone-brand"><span>中·RU</span><b>RUSCNY</b></div>
+          <div class="phone-copy"><small>中文 ⇄ Русский</small><strong>跨语言会议<br>从这里开始</strong></div>
+          <div class="phone-button">加入会议</div>
+          <div class="phone-lines"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta">
+      <div class="section-shell final-inner">
+        <div><p data-i18n="finalEyebrow">RUSCNY 中俄实时翻译</p><h2 data-i18n="finalTitle">让跨语言会议，<br>从听懂走向真正理解。</h2></div>
+        <div class="final-actions"><a class="button button-primary" href="/account" data-i18n="registerAccount">免费注册</a><a class="button button-light" href="/join"><span data-i18n="joinNow">立即加入会议</span><span>→</span></a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="section-shell footer-top">
+      <div class="footer-brand"><a class="brand" href="/"><span class="brand-mark">中·RU</span><span class="brand-copy"><strong>RUSCNY</strong><small data-i18n="brandTag">中俄实时翻译</small></span></a><p data-i18n="footerText">面向中俄商务沟通的多人实时语音翻译应用。</p></div>
+      <div class="footer-links"><div><b data-i18n="product">产品</b><a href="#features" data-i18n="navFeatures">核心功能</a><a href="#meeting" data-i18n="navMeeting">多人会议</a><a href="#download" data-i18n="navDownload">下载</a></div><div><b data-i18n="participate">参会</b><a href="/account" data-i18n="accountAction">注册 / 登录</a><a href="/join" data-i18n="browserJoinShort">浏览器参会</a><a href="/join" data-i18n="roomCodeJoin">使用房间码</a></div><div><b data-i18n="legal">规则与隐私</b><a href="/privacy" data-i18n="privacyPolicy">隐私政策</a><a href="/terms" data-i18n="terms">用户协议</a></div></div>
+    </div>
+    <div class="section-shell footer-bottom"><span>© <span id="year">2026</span> RUSCNY · www.ruscny.net</span><span data-i18n="footerStatus">正式运营主体与客服信息将在上线前公示</span></div>
+  </footer>
+</body>
+</html>

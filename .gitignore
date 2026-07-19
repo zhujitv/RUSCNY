@@ -1,0 +1,51 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+key.properties
+google-services.json
+GoogleService-Info.plist
+
+# Node / backend
+node_modules/
+dist/
+coverage/
+*.log
+.npm/
+.pnpm-store/
+services/api/storage/
+services/api/prisma/dev.db*
+
+# Flutter / Dart
+.tooling/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+artifacts/
+*.apk
+*.aab
+*.ipa
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/android/gradle/wrapper/gradle-wrapper.jar
+apps/mobile/ios/Pods/
+apps/mobile/ios/.symlinks/
+apps/mobile/ios/Flutter/ephemeral/
+apps/mobile/ios/Flutter/Generated.xcconfig
+apps/mobile/ios/Flutter/flutter_export_environment.sh
+apps/mobile/ios/Runner.xcworkspace/xcuserdata/
+apps/mobile/ios/Runner.xcodeproj/xcuserdata/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

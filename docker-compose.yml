@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16.14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: translator
+      POSTGRES_USER: translator
+      POSTGRES_PASSWORD: translator
+    ports:
+      - "5432:5432"
+    volumes:
+      - translator_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U translator -d translator"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4.9-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - translator_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      # This Compose file is the local development stack. The runtime image
+      # defaults to production, whose configuration intentionally rejects the
+      # plain PostgreSQL/Redis URLs used by the local containers.
+      NODE_ENV: development
+      DATABASE_URL: postgresql://translator:translator@postgres:5432/translator?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - translator_audio:/app/storage/audio
+
+  migrate:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+      target: migration
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://translator:translator@postgres:5432/translator?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  translator_postgres:
+  translator_redis:
+  translator_audio:

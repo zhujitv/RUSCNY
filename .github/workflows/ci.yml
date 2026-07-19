@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.14-alpine
+        env:
+          POSTGRES_DB: translator_test
+          POSTGRES_USER: translator
+          POSTGRES_PASSWORD: translator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U translator -d translator_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7.4.9-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://translator:translator@localhost:5432/translator_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
+      PASSWORD_PEPPER: ci-password-pepper-at-least-32-characters
+      TRANSLATION_PROVIDER: mock
+      PUBLIC_APP_URL: https://translate.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - name: Verify production image builds from the monorepo lockfile
+        run: docker build --file services/api/Dockerfile --target runtime --tag translator-api:ci .
+
+  mobile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+      - name: Install and verify the Gradle 8.11.1 wrapper binary
+        shell: bash
+        run: |
+          wrapper_jar="$RUNNER_TEMP/gradle-wrapper.jar"
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar \
+            --output "$wrapper_jar"
+          echo "2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046  $wrapper_jar" | sha256sum --check
+          install -m 0644 "$wrapper_jar" android/gradle/wrapper/gradle-wrapper.jar
+          chmod +x android/gradlew
+      - run: flutter --version
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze --no-pub
+      - run: flutter test --no-pub
+      - name: Build Android API 36 debug APK with AGP 8.10.1
+        run: >-
+          flutter build apk --debug --no-pub
+          --dart-define=API_BASE_URL=http://10.0.2.2:3000
+          --dart-define=SOCKET_URL=http://10.0.2.2:3000
+          --dart-define=APP_LINK_HOST=translate.example.com
+
+  ios-simulator:
+    runs-on: macos-15
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify generated iOS build inputs
+        shell: bash
+        run: |
+          test -f ios/Flutter/Generated.xcconfig
+          test -f ios/Flutter/flutter_export_environment.sh
+          test -f ios/Runner/GeneratedPluginRegistrant.h
+          test -f ios/Runner/GeneratedPluginRegistrant.m
+      - run: >-
+          flutter build ios --simulator --debug --no-pub
+          --dart-define=API_BASE_URL=https://api.invalid
+          --dart-define=SOCKET_URL=https://socket.invalid
+          --dart-define=APP_LINK_HOST=translate.example.com

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103f35">
+  <meta name="description" content="注册或登录 RUSCNY 中俄实时语音翻译账号。">
+  <meta name="robots" content="noindex,nofollow">
+  <title>注册或登录｜RUSCNY</title>
+  <link rel="canonical" href="https://www.ruscny.net/account">
+  <link rel="stylesheet" href="/site.css">
+  <script src="/site.js" defer></script>
+  <script src="/account.js" defer></script>
+</head>
+<body class="account-page" data-page="account">
+  <a class="skip-link" href="#main" data-i18n="skip">跳到主要内容</a>
+
+  <header class="account-header">
+    <div class="section-shell account-nav">
+      <a class="brand" href="/" aria-label="RUSCNY">
+        <span class="brand-mark" aria-hidden="true">中·RU</span>
+        <span class="brand-copy"><strong>RUSCNY</strong><small data-i18n="brandTag">中俄实时翻译</small></span>
+      </a>
+      <div>
+        <a href="/" class="legal-back">← <span data-i18n="accountBack">返回官网</span></a>
+        <label class="locale-picker">
+          <span class="sr-only" data-i18n="language">界面语言</span>
+          <select class="locale-select" aria-label="界面语言">
+            <option value="zh">中文</option>
+            <option value="ru">Русский</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="account-main section-shell" id="main">
+    <section class="account-intro" aria-labelledby="account-title">
+      <p class="eyebrow"><span></span><b data-i18n="accountEyebrow">RUSCNY 正式账号</b></p>
+      <h1 id="account-title" data-i18n="accountTitle">先建立可信身份，<br>再开始每一次会议。</h1>
+      <p class="account-lead" data-i18n="accountLead">注册资料由服务端保存，用于好友邀请、多人会议身份和带发言者归属的会议记录。注册成功后，可使用同一邮箱和密码登录 App。</p>
+      <ul class="account-benefits">
+        <li><span>01</span><div><b data-i18n="accountBenefit1Title">创建或加入会议</b><small data-i18n="accountBenefit1Text">所有注册用户均可发起会议，也可以接受邀请加入会议。</small></div></li>
+        <li><span>02</span><div><b data-i18n="accountBenefit2Title">身份跟随每段发言</b><small data-i18n="accountBenefit2Text">显示名称、公司和语言与实际账号关联。</small></div></li>
+        <li><span>03</span><div><b data-i18n="accountBenefit3Title">中俄双语使用</b><small data-i18n="accountBenefit3Text">网页默认跟随系统语言，也可随时切换。</small></div></li>
+      </ul>
+      <p class="account-boundary" data-i18n="accountBoundary">网页用于注册和登录验证；语音会议、好友与历史记录的完整功能仍在手机 App 中使用。</p>
+    </section>
+
+    <section class="auth-card" aria-label="账号认证">
+      <div class="auth-tabs" role="tablist" aria-label="账号操作">
+        <button type="button" role="tab" id="register-tab" aria-controls="account-form" aria-selected="true" data-auth-mode="register" data-i18n="authRegisterTab">注册</button>
+        <button type="button" role="tab" id="login-tab" aria-controls="account-form" aria-selected="false" data-auth-mode="login" data-i18n="authLoginTab">登录</button>
+      </div>
+
+      <div id="auth-panel">
+        <div class="auth-heading">
+          <div data-mode-section="register"><h2 data-i18n="registrationTitle">创建正式账号</h2><p data-i18n="registrationText">填写资料后，账号会立即建立并登录当前网页。</p></div>
+          <div data-mode-section="login" hidden><h2 data-i18n="loginTitle">欢迎回来</h2><p data-i18n="loginText">使用与手机 App 相同的账号登录。</p></div>
+        </div>
+
+        <div class="form-status" role="status" aria-live="polite" hidden></div>
+
+        <form id="account-form">
+          <div class="register-fields" data-mode-section="register">
+            <label class="field">
+              <span data-i18n="displayNameLabel">姓名或显示名称 *</span>
+              <input id="display-name" name="displayName" type="text" minlength="1" maxlength="100" autocomplete="name" required>
+            </label>
+            <label class="field">
+              <span data-i18n="companyLabel">所属公司（选填）</span>
+              <input id="company" name="company" type="text" maxlength="200" autocomplete="organization">
+            </label>
+            <fieldset class="choice-field">
+              <legend data-i18n="languagePreference">主要使用语言 *</legend>
+              <div class="choice-grid">
+                <label><input type="radio" name="preferredLanguage" value="zh" checked><span>中文</span></label>
+                <label><input type="radio" name="preferredLanguage" value="ru"><span>Русский</span></label>
+              </div>
+            </fieldset>
+          </div>
+
+          <label class="field">
+            <span data-i18n="emailLabel">邮箱 *</span>
+            <input id="account-email" name="email" type="email" maxlength="254" inputmode="email" autocomplete="email" required>
+          </label>
+          <label class="field">
+            <span data-i18n="passwordLabel">密码 *</span>
+            <input id="account-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required aria-describedby="password-help">
+            <small id="password-help" data-i18n="passwordHelp">至少 8 位，最多 128 位。</small>
+          </label>
+          <label class="field" data-mode-section="register">
+            <span data-i18n="confirmPasswordLabel">再次输入密码 *</span>
+            <input id="confirm-password" name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+          </label>
+
+          <label class="consent-row" data-mode-section="register">
+            <input id="account-consent" type="checkbox" required>
+            <span><span data-i18n="consentBefore">我已阅读并同意</span> <a href="/terms" target="_blank" rel="noopener" data-i18n="terms">用户协议</a> <span data-i18n="consentAnd">和</span> <a href="/privacy" target="_blank" rel="noopener" data-i18n="privacyPolicy">隐私政策</a>。</span>
+          </label>
+
+          <button class="button button-primary auth-submit" type="submit">
+            <span data-mode-section="register" data-i18n="submitRegister">注册并登录</span>
+            <span data-mode-section="login" data-i18n="submitLogin" hidden>登录</span>
+          </button>
+        </form>
+
+        <div class="auth-switch">
+          <p data-mode-section="register"><span data-i18n="haveAccount">已经有账号？</span> <button type="button" data-switch-mode="login" data-i18n="signInNow">直接登录</button></p>
+          <p data-mode-section="login" hidden><span data-i18n="noAccount">还没有账号？</span> <button type="button" data-switch-mode="register" data-i18n="createNow">立即注册</button></p>
+        </div>
+      </div>
+
+      <div class="session-panel" id="session-panel" hidden>
+        <span class="success-mark" aria-hidden="true">✓</span>
+        <h2 data-i18n="sessionTitle">账号已就绪</h2>
+        <p data-i18n="sessionLead">当前网页已登录。请在手机 App 中使用同一账号进入完整工作区。</p>
+        <dl class="profile-list">
+          <div><dt data-i18n="profileName">显示名称</dt><dd data-profile="displayName">—</dd></div>
+          <div><dt data-i18n="profileEmail">邮箱</dt><dd data-profile="email">—</dd></div>
+          <div><dt data-i18n="profileCompany">公司</dt><dd data-profile="company">—</dd></div>
+          <div><dt data-i18n="profileLanguage">语言</dt><dd data-profile="preferredLanguage">—</dd></div>
+        </dl>
+        <div class="session-actions">
+          <a class="button button-primary" href="/#download" data-i18n="getApp">获取应用</a>
+          <a class="button button-quiet" href="/join" data-i18n="joinMeeting">加入会议</a>
+        </div>
+        <button class="logout-button" id="logout-button" type="button" data-i18n="logout">退出当前网页账号</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="account-footer">
+    <div class="section-shell"><span>© <span id="year">2026</span> RUSCNY</span><span><a href="/privacy" data-i18n="privacyPolicy">隐私政策</a> · <a href="/terms" data-i18n="terms">用户协议</a></span></div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Password reset</title>
+  <link rel="stylesheet" href="/reset-password/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+  <main class="reset-page">
+    <section class="reset-card">
+      <div class="brand-mark" aria-hidden="true">中<span>RU</span></div>
+      <p class="eyebrow">TOOYEI TRANSLATOR</p>
+      <h1 id="title">设置新密码</h1>
+      <p id="hint" class="muted">此一次性链接将在使用后立即失效，完成后所有设备需要重新登录。</p>
+      <form id="resetForm">
+        <label><span id="passwordLabel">新密码</span><input id="newPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label>
+        <label><span id="confirmLabel">确认新密码</span><input id="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label>
+        <button id="submitButton" class="primary full" type="submit">确认重置</button>
+      </form>
+      <div id="result" class="status-text" role="status"></div>
+      <div class="login-footer">
+        <label class="language-picker"><span id="languageLabel">语言</span><select id="languageSelect"><option value="zh">中文</option><option value="ru">Русский</option></select></label>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/reset-password/reset.js"></script>
+</body>
+</html>

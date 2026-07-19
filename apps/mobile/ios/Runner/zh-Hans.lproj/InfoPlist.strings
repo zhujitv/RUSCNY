@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "中俄翻译";
+"NSMicrophoneUsageDescription" = "用于按住说话并提交语音进行中俄翻译；松开后即停止录音。";
+"NSCameraUsageDescription" = "用于扫描主持人分享的会议二维码。";

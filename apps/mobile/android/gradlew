@@ -1,0 +1,27 @@
+#!/bin/sh
+
+# Flutter keeps the Gradle wrapper binary in its verified SDK artifact cache.
+# This source-only project uses that copy when the binary is not checked in.
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+LOCAL_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+
+if [ -f "$LOCAL_JAR" ]; then
+  WRAPPER_JAR="$LOCAL_JAR"
+else
+  if [ ! -f "$APP_HOME/local.properties" ]; then
+    echo "android/local.properties is missing; run flutter pub get first." >&2
+    exit 1
+  fi
+  FLUTTER_SDK=$(sed -n 's/^flutter.sdk=//p' "$APP_HOME/local.properties" | head -n 1)
+  WRAPPER_JAR="$FLUTTER_SDK/bin/cache/artifacts/gradle_wrapper/gradle-wrapper.jar"
+fi
+
+if [ ! -f "$WRAPPER_JAR" ]; then
+  echo "Flutter Gradle wrapper artifact is missing; run flutter precache --android." >&2
+  exit 1
+fi
+
+exec java ${JAVA_OPTS:-} ${GRADLE_OPTS:-} \
+  -Dorg.gradle.appname=gradlew \
+  -classpath "$WRAPPER_JAR" \
+  org.gradle.wrapper.GradleWrapperMain "$@"

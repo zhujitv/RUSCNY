@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN" data-ios-download-url="" data-android-download-url="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#0b6e69" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+    />
+    <title>中俄实时翻译会议</title>
+    <link rel="stylesheet" href="/join/styles.css" />
+    <script src="/socket.io/socket.io.js" defer></script>
+    <script src="/join/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/join" aria-label="TOOYEI Translator">
+          <span class="brand-mark" aria-hidden="true">中·RU</span>
+          <span class="brand-copy">
+            <strong>TOOYEI</strong>
+            <span data-i18n="productName">中俄实时翻译</span>
+          </span>
+        </a>
+        <label class="locale-control">
+          <span class="sr-only" data-i18n="interfaceLanguage">界面语言</span>
+          <select id="locale-select" autocomplete="off">
+            <option value="zh">中文</option>
+            <option value="ru">Русский</option>
+          </select>
+        </label>
+      </header>
+
+      <main>
+        <section id="join-view" class="join-layout" aria-labelledby="join-title">
+          <div class="join-intro">
+            <div class="eyebrow" data-i18n="guestMeeting">临时参会</div>
+            <h1 id="join-title" data-i18n="joinTitle">无需安装，直接进入翻译会议</h1>
+            <p data-i18n="joinLead">填写本次参会资料后，即可查看实时原文、译文和发言人信息。</p>
+            <ul class="feature-list" aria-label="Meeting features">
+              <li><span aria-hidden="true">●</span><span data-i18n="featureRealtime">中俄双向实时翻译</span></li>
+              <li><span aria-hidden="true">●</span><span data-i18n="featureIdentity">每段内容都标明发言人</span></li>
+              <li><span aria-hidden="true">●</span><span data-i18n="featureReconnect">断线后自动重连和补拉</span></li>
+            </ul>
+          </div>
+
+          <div class="join-card">
+            <div id="invite-badge" class="invite-badge" hidden>
+              <span class="badge-dot" aria-hidden="true"></span>
+              <span data-i18n="inviteDetected">已识别会议邀请</span>
+            </div>
+            <form id="guest-form" novalidate>
+              <div id="room-code-group" class="field-group">
+                <label for="room-code" data-i18n="roomCode">房间码</label>
+                <input
+                  id="room-code"
+                  name="roomCode"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="8"
+                  pattern="[0-9]{6,8}"
+                  data-i18n-placeholder="roomCodePlaceholder"
+                  placeholder="6–8 位数字"
+                />
+              </div>
+              <div class="field-group">
+                <label for="display-name" data-i18n="displayName">姓名或显示名称</label>
+                <input
+                  id="display-name"
+                  name="displayName"
+                  autocomplete="name"
+                  maxlength="100"
+                  required
+                  data-i18n-placeholder="namePlaceholder"
+                  placeholder="例如：王经理 / Ivan"
+                />
+              </div>
+              <div class="field-group">
+                <label for="company" data-i18n="company">所属公司</label>
+                <input
+                  id="company"
+                  name="company"
+                  autocomplete="organization"
+                  maxlength="200"
+                  required
+                  data-i18n-placeholder="companyPlaceholder"
+                  placeholder="请填写本次参会使用的公司名称"
+                />
+              </div>
+              <div class="field-group">
+                <label for="email" data-i18n="email">接收会议纪要的邮箱</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  maxlength="254"
+                  required
+                  data-i18n-placeholder="emailPlaceholder"
+                  placeholder="name@company.com"
+                />
+                <p class="field-hint" data-i18n="emailHint">主持人可在会议结束后向此邮箱发送会议纪要。</p>
+              </div>
+              <div class="field-group">
+                <label for="speech-language" data-i18n="speechLanguage">本次发言语言</label>
+                <select id="speech-language" name="preferredLanguage" required>
+                  <option value="zh" data-i18n="chinese">中文</option>
+                  <option value="ru" data-i18n="russian">俄语</option>
+                </select>
+                <p class="field-hint" data-i18n="speechLanguageHint">发言时请使用选定语言，系统会自动翻译为另一种语言。</p>
+              </div>
+
+              <p id="join-error" class="form-error" role="alert" hidden></p>
+              <button id="join-button" class="button primary" type="submit">
+                <span data-i18n="joinNow">立即进入会议</span>
+              </button>
+              <button id="open-app" class="button quiet" type="button" hidden>
+                <span data-i18n="openApp">已安装 App？在 App 中打开</span>
+              </button>
+            </form>
+            <p class="privacy-note" data-i18n="privacyNote">
+              参会资料用于本次会议身份、发言归属和主持人发放会议纪要。邀请凭证和访问凭证只保留在当前浏览器会话中。
+            </p>
+          </div>
+        </section>
+
+        <section id="room-view" class="room-view" aria-labelledby="meeting-title" hidden>
+          <header class="meeting-header">
+            <div>
+              <div class="meeting-state-row">
+                <span id="connection-dot" class="connection-dot" aria-hidden="true"></span>
+                <span id="connection-label" data-i18n="connecting">正在连接…</span>
+              </div>
+              <h1 id="meeting-title" data-i18n="meeting">翻译会议</h1>
+              <p id="meeting-meta" class="meeting-meta"></p>
+            </div>
+            <div class="meeting-actions">
+              <button id="participants-toggle" class="icon-button mobile-only" type="button" aria-expanded="false">
+                <span aria-hidden="true">☰</span>
+                <span data-i18n="participants">参会者</span>
+              </button>
+              <button id="export-txt" class="icon-button" type="button" data-format="txt">
+                <span data-i18n="exportTxt">导出 TXT</span>
+              </button>
+              <button id="leave-button" class="icon-button danger" type="button">
+                <span data-i18n="leaveMeeting">退出会议</span>
+              </button>
+            </div>
+          </header>
+
+          <div class="meeting-grid">
+            <aside id="participants-panel" class="participants-panel" aria-labelledby="participants-title">
+              <div class="panel-heading">
+                <h2 id="participants-title" data-i18n="participants">参会者</h2>
+                <span id="participant-count" class="count-pill">0</span>
+              </div>
+              <div id="participants-list" class="participants-list"></div>
+            </aside>
+
+            <section class="transcript-panel" aria-labelledby="transcript-title">
+              <div class="transcript-toolbar">
+                <div>
+                  <h2 id="transcript-title" data-i18n="liveTranscript">实时会议内容</h2>
+                  <p id="sync-label" class="sync-label" data-i18n="waitingForSpeech">等待发言</p>
+                </div>
+                <button id="scroll-latest" class="text-button" type="button" hidden data-i18n="latest">最新内容</button>
+              </div>
+
+              <div id="active-speaker" class="active-speaker" hidden>
+                <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span id="active-speaker-label"></span>
+              </div>
+
+              <div id="transcript" class="transcript" aria-live="polite" aria-relevant="additions text">
+                <div id="empty-transcript" class="empty-state">
+                  <div class="empty-icon" aria-hidden="true">“</div>
+                  <h3 data-i18n="noMessages">还没有发言内容</h3>
+                  <p data-i18n="noMessagesHint">按住下方按钮说话，松开后自动提交翻译。</p>
+                </div>
+              </div>
+
+              <footer class="composer">
+                <div class="composer-status">
+                  <span id="recording-time">00:00</span>
+                  <span id="composer-message" data-i18n="holdToTalk">按住说话，松开提交</span>
+                  <button id="retry-upload" class="text-button danger-text" type="button" hidden data-i18n="retryUpload">重试上传</button>
+                </div>
+                <button id="record-button" class="record-button" type="button">
+                  <span class="mic-icon" aria-hidden="true">●</span>
+                  <span id="record-label" data-i18n="holdToTalk">按住说话，松开提交</span>
+                </button>
+                <p class="record-hint" data-i18n="microphoneNotice">首次使用时，浏览器会请求麦克风权限。</p>
+              </footer>
+            </section>
+          </div>
+        </section>
+
+        <section id="terminal-view" class="terminal-card" hidden aria-live="assertive">
+          <div class="terminal-icon" aria-hidden="true">!</div>
+          <h1 id="terminal-title">会议已结束</h1>
+          <p id="terminal-message"></p>
+          <button id="return-button" class="button primary" type="button" data-i18n="returnToJoin">返回加入页</button>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <noscript>请启用 JavaScript 后重新打开邀请链接，或在 App 中输入房间码。</noscript>
+  </body>
+</html>
