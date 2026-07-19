@@ -67,6 +67,30 @@ test('homepage promotes the launched AI summary workflow without the obsolete pr
   assert.match(source, /不通过群发抄送公开他人地址/);
 });
 
+test('public website uses neutral participant labels and flags both languages', async () => {
+  const [home, source, accountSource] = await Promise.all([
+    readFile(new URL('index.html', directory), 'utf8'),
+    readFile(new URL('app.js', directory), 'utf8'),
+    readFile(new URL('account.js', directory), 'utf8'),
+  ]);
+
+  const forbiddenDemoBrands = new RegExp(
+    `${['TOO', 'YEI'].join('')}|${['POL', 'IVAN'].join('')}`,
+    'i',
+  );
+  assert.doesNotMatch(`${home}\n${source}`, forbiddenDemoBrands);
+  for (const content of [home, source, accountSource]) {
+    assert.match(content, /🇨🇳 中文/);
+    assert.match(content, /🇷🇺 Русский/);
+  }
+
+  for (const name of ['index.html', 'account.html', 'privacy.html', 'terms.html']) {
+    const page = await readFile(new URL(name, directory), 'utf8');
+    assert.match(page, /<option value="zh">🇨🇳 中文<\/option>/);
+    assert.match(page, /<option value="ru">🇷🇺 Русский<\/option>/);
+  }
+});
+
 test('account page submits the complete registered-user profile to same-origin auth APIs', async () => {
   const [page, source] = await Promise.all([
     readFile(new URL('account.html', directory), 'utf8'),
