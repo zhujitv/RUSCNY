@@ -4,17 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#103f35">
-  <meta name="description" content="面向中俄商务沟通的实时语音翻译应用。支持多人会议、发言者归属、会议记录和中俄双语界面。">
+  <meta name="description" content="面向中俄商务沟通的实时语音翻译应用。支持多人会议、发言者归属、AI 会议纪要、主持人确认和逐人邮件分发。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://www.ruscny.net/">
   <meta property="og:title" content="中俄实时语音翻译｜让每一次跨语言会议清楚可追溯">
-  <meta property="og:description" content="多人进入同一个翻译会议，按住说话即可同步原文、译文和发言者身份。">
+  <meta property="og:description" content="多人进入同一个翻译会议，实时同步原文、译文与发言者身份；会后由 AI 整理纪要，经主持人确认后分发。">
   <meta property="og:image" content="https://www.ruscny.net/og.png">
   <meta name="twitter:card" content="summary_large_image">
   <title>中俄实时语音翻译｜RUSCNY</title>
   <link rel="canonical" href="https://www.ruscny.net/">
-  <link rel="stylesheet" href="/site.css?v=20260719-6">
-  <script src="/site.js?v=20260719-3" defer></script>
+  <link rel="stylesheet" href="/site.css?v=20260719-7">
+  <script src="/site.js?v=20260719-5" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main" data-i18n="skip">跳到主要内容</a>
@@ -49,11 +49,6 @@
       </div>
     </div>
   </header>
-
-  <div class="service-banner" role="status">
-    <span aria-hidden="true"></span>
-    <p data-i18n="servicePreview">官网前台已开放；注册、登录和会议服务正在准备中。</p>
-  </div>
 
   <main id="main">
     <section class="hero section-shell">
@@ -153,7 +148,7 @@
         </article>
         <article class="feature-card feature-wide mint-card">
           <div class="card-number">05</div>
-          <div><h3 data-i18n="featureRecordTitle">记录、导出与会议纪要</h3><p data-i18n="featureRecordText">按时间或发言者查看完整内容，复制或导出 TXT、Markdown，并生成保留各方观点与负责人信息的会议纪要。</p></div>
+          <div><h3 data-i18n="featureRecordTitle">记录、导出与 AI 会议纪要</h3><p data-i18n="featureRecordText">按时间或发言者查看完整内容，导出 TXT、Markdown；会议结束后由 AI 整理主要内容，经主持人确认再分发。</p></div>
           <div class="file-stack" aria-hidden="true"><span>TXT</span><span>MD</span><span>纪要</span></div>
         </article>
       </div>
@@ -175,6 +170,31 @@
           <div class="language-side cn"><span>中文</span><strong>我们确认<br>交货时间。</strong><small>王伟 · TOOYEI</small></div>
           <div class="bridge-core"><i>中</i><span>⇄</span><i>RU</i><small data-i18n="instantTranslation">即时翻译</small></div>
           <div class="language-side ru"><span>Русский</span><strong>Мы подтверждаем<br>срок поставки.</strong><small>Ван Вэй · TOOYEI</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="minutes section-shell section-block" id="minutes">
+      <div class="minutes-panel">
+        <div class="minutes-copy">
+          <p class="eyebrow light"><span></span><b data-i18n="minutesEyebrow">AI 会后整理与分发</b></p>
+          <h2 data-i18n="minutesTitle">AI 整理会议要点，<br>确认后再逐人分发。</h2>
+          <p class="minutes-lead" data-i18n="minutesLead">会议结束后，AI 根据本场中俄双语记录生成结构化草稿。主持人先核对当前版本，再选择参会者逐人发送，让共识、责任和下一步真正落地。</p>
+          <div class="minutes-points">
+            <article><span>01</span><div><h3 data-i18n="minutesSourceTitle">结论有发言依据</h3><p data-i18n="minutesSourceText">概要、各方观点与关键讨论保留发言人、时间、原文和译文线索，方便回到会议记录核对。</p></div></article>
+            <article><span>02</span><div><h3 data-i18n="minutesApprovalTitle">主持人确认当前版本</h3><p data-i18n="minutesApprovalText">AI 先生成草稿；如果会议记录更新，旧确认自动失效，重新整理并确认后才能分发。</p></div></article>
+            <article><span>03</span><div><h3 data-i18n="minutesDeliveryTitle">按参会者逐人发送</h3><p data-i18n="minutesDeliveryText">主持人选择有可用邮箱的参会者，系统逐人发送双语纪要，不通过群发抄送公开他人地址。</p></div></article>
+          </div>
+          <a class="button button-light minutes-action" href="/account" data-i18n="minutesCta">注册并开始会议</a>
+        </div>
+        <div class="minutes-demo" aria-label="AI 会议纪要示意">
+          <div class="minutes-demo-head"><div><i>AI</i><b data-i18n="minutesDemoLabel">项目交付会 · AI 纪要</b></div><span>✓ <b data-i18n="minutesDemoStatus">主持人已确认</b></span></div>
+          <div class="minutes-demo-body">
+            <article><span>01</span><div><small data-i18n="minutesDemoOverview">会议概要</small><strong data-i18n="minutesDemoOverviewText">双方确认交货时间与验收流程</strong></div></article>
+            <article><span>02</span><div><small data-i18n="minutesDemoAction">待办与负责人</small><strong data-i18n="minutesDemoActionText">Иван · 明日提交最终规格书</strong></div></article>
+            <article><span>03</span><div><small data-i18n="minutesDemoDelivery">纪要分发</small><strong data-i18n="minutesDemoDeliveryText">已选择 4 位参会者</strong></div></article>
+          </div>
+          <div class="minutes-demo-footer"><span>中文</span><i>⇄</i><span>Русский</span><b>TXT · MD · Email</b></div>
         </div>
       </div>
     </section>

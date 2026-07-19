@@ -50,6 +50,23 @@ test('public pages keep customer navigation separate from administration', async
   assert.doesNotMatch(home, /http:\/\//);
 });
 
+test('homepage promotes the launched AI summary workflow without the obsolete preparation banner', async () => {
+  const [home, account, source] = await Promise.all([
+    readFile(new URL('index.html', directory), 'utf8'),
+    readFile(new URL('account.html', directory), 'utf8'),
+    readFile(new URL('app.js', directory), 'utf8'),
+  ]);
+
+  for (const content of [home, account, source]) {
+    assert.doesNotMatch(content, /官网前台已开放；注册、登录和会议服务正在准备中。/);
+  }
+  assert.match(home, /id="minutes"/);
+  assert.match(home, /data-i18n="minutesApprovalTitle"/);
+  assert.match(home, /data-i18n="minutesDeliveryTitle"/);
+  assert.match(source, /旧确认自动失效/);
+  assert.match(source, /不通过群发抄送公开他人地址/);
+});
+
 test('account page submits the complete registered-user profile to same-origin auth APIs', async () => {
   const [page, source] = await Promise.all([
     readFile(new URL('account.html', directory), 'utf8'),
@@ -96,5 +113,6 @@ test('mobile layout uses fluid widths for large visual modules', async () => {
   assert.doesNotMatch(mobile[1], /\.language-bridge\s*\{[^}]*width:\s*720px/);
   assert.match(mobile[1], /\.product-window\s*\{[^}]*width:100%/);
   assert.match(mobile[1], /\.language-bridge\s*\{[^}]*width:100%/);
+  assert.match(mobile[1], /\.minutes-demo\s*\{[^}]*width:100%/);
   assert.match(mobile[1], /\.final-actions\s*\{[^}]*grid-template-columns:1fr/);
 });
