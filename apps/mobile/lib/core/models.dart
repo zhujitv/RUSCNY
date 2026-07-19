@@ -230,9 +230,17 @@ final class Conversation {
   final int participantCount;
   final List<Participant> participants;
 
-  // The server accepts audio only after at least one participant has joined and
-  // the meeting is ACTIVE. WAITING remains read-only for every participant.
+  // ACTIVE meetings accept every current participant. While the invitation is
+  // still WAITING, only the registered owner/host may run a solo microphone
+  // check; the server independently revalidates the stored Participant role.
   bool get canSpeak => status == ConversationStatus.active;
+
+  bool canSpeakAs(String? currentUserId) =>
+      canSpeak ||
+      (status == ConversationStatus.waiting &&
+          currentUserId != null &&
+          currentUserId.isNotEmpty &&
+          ownerId == currentUserId);
 
   bool get canEnd =>
       status == ConversationStatus.waiting ||

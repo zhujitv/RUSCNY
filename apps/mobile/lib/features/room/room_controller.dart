@@ -166,6 +166,17 @@ final class RoomController extends StateNotifier<RoomState> {
 
   AudioCapture get _audioCapture => _capture ??= AudioCapture();
 
+  bool get _canSpeak => state.conversation?.canSpeakAs(_currentUserId) == true;
+
+  bool get _canStartRecording =>
+      !_disposed &&
+      !_recordingStartInFlight &&
+      state.action == RoomAction.idle &&
+      _canSpeak;
+
+  @visibleForTesting
+  bool get debugCanStartRecording => _canStartRecording;
+
   Future<void> _initialize() async {
     final retained = await _pendingAudioRegistry.restore(conversationId);
     if (_disposed) return;
@@ -334,13 +345,6 @@ final class RoomController extends StateNotifier<RoomState> {
               ? '自动重连已停止，请点击重试连接'
               : null,
         );
-        if (status != RoomSocketStatus.connected &&
-            state.action == RoomAction.recording) {
-          // Offline audio is never queued for a later upload. Ending the local
-          // segment immediately avoids a long-running mic after a weak-network
-          // transition or a server-forced disconnect.
-          unawaited(cancelRecording());
-        }
         if (status == RoomSocketStatus.disconnected &&
             reason == 'io server disconnect') {
           state = state.copyWith(error: '服务器已更新登录凭证，正在恢复会议连接');
@@ -395,7 +399,8 @@ final class RoomController extends StateNotifier<RoomState> {
           status: status,
           selfParticipantId: selfParticipantId,
         );
-        if (status != ConversationStatus.active) {
+        if (status == ConversationStatus.ended ||
+            status == ConversationStatus.expired) {
           unawaited(_discardPendingForLifecycle());
           if (state.action == RoomAction.recording) {
             unawaited(cancelRecording());
@@ -730,13 +735,7 @@ final class RoomController extends StateNotifier<RoomState> {
   void clearError() => state = state.copyWith(clearError: true);
 
   Future<void> beginRecording() async {
-    if (_disposed ||
-        _recordingStartInFlight ||
-        state.action != RoomAction.idle ||
-        state.conversation?.canSpeak != true ||
-        state.connection != RoomSocketStatus.connected) {
-      return;
-    }
+    if (!_canStartRecording) return;
     _recordingStartInFlight = true;
     _pendingRecordingRelease = null;
     state = state.copyWith(action: RoomAction.recording, clearError: true);
@@ -784,8 +783,7 @@ final class RoomController extends StateNotifier<RoomState> {
 
   Future<void> _finishStartedRecording() async {
     if (_disposed || state.action != RoomAction.recording) return;
-    if (state.conversation?.canSpeak != true ||
-        state.connection != RoomSocketStatus.connected) {
+    if (!_canSpeak) {
       await cancelRecording();
       return;
     }
@@ -832,9 +830,8 @@ final class RoomController extends StateNotifier<RoomState> {
     if (_disposed || pending == null || state.action != RoomAction.sendFailed) {
       return;
     }
-    if (state.conversation?.canSpeak != true ||
-        state.connection != RoomSocketStatus.connected) {
-      state = state.copyWith(error: '会议恢复连接后才能重试发送此段录音');
+    if (!_canSpeak) {
+      state = state.copyWith(error: '当前会议状态不允许发送此段录音');
       return;
     }
     await _sendPendingAudio(pending);

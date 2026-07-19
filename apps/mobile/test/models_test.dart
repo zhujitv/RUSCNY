@@ -163,10 +163,25 @@ void main() {
       GuestHistoryPolicy.accessFor24Hours,
     );
     expect(conversation.canSpeak, isFalse);
+    expect(conversation.canSpeakAs('host-1'), isTrue);
+    expect(conversation.canSpeakAs('participant-2'), isFalse);
+    expect(conversation.canSpeakAs(null), isFalse);
     expect(conversation.canEnd, isTrue);
     expect(
       conversation.copyWith(status: ConversationStatus.active).canSpeak,
       isTrue,
+    );
+    expect(
+      conversation
+          .copyWith(status: ConversationStatus.active)
+          .canSpeakAs('participant-2'),
+      isTrue,
+    );
+    expect(
+      conversation
+          .copyWith(status: ConversationStatus.ended)
+          .canSpeakAs('host-1'),
+      isFalse,
     );
     expect(
       conversation.copyWith(status: ConversationStatus.ended).canEnd,

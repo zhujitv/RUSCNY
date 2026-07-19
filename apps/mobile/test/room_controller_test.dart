@@ -49,6 +49,51 @@ void main() {
     expect(controller.state.error, contains('点击重试连接'));
   });
 
+  test('waiting host can record while realtime synchronization is unavailable',
+      () {
+    final controller = controllerForTest(currentUserId: 'host-1');
+    controller.debugSetConversation(
+      Conversation(
+        id: 'conversation-1',
+        ownerId: 'host-1',
+        contactId: 'contact-1',
+        status: ConversationStatus.waiting,
+        roomToken: '',
+        roomCode: '',
+        guestHistoryPolicy: GuestHistoryPolicy.accessFor24Hours,
+        createdAt: DateTime.utc(2026, 7, 19),
+        updatedAt: DateTime.utc(2026, 7, 19),
+      ),
+    );
+    controller.debugHandleEvent(
+      const SocketStatusChanged(RoomSocketStatus.reconnectFailed),
+    );
+
+    expect(controller.state.connection, RoomSocketStatus.reconnectFailed);
+    expect(controller.debugCanStartRecording, isTrue);
+    controller.dispose();
+  });
+
+  test('waiting non-owner remains unable to record', () {
+    final controller = controllerForTest(currentUserId: 'participant-2');
+    controller.debugSetConversation(
+      Conversation(
+        id: 'conversation-1',
+        ownerId: 'host-1',
+        contactId: 'contact-1',
+        status: ConversationStatus.waiting,
+        roomToken: '',
+        roomCode: '',
+        guestHistoryPolicy: GuestHistoryPolicy.accessFor24Hours,
+        createdAt: DateTime.utc(2026, 7, 19),
+        updatedAt: DateTime.utc(2026, 7, 19),
+      ),
+    );
+
+    expect(controller.debugCanStartRecording, isFalse);
+    controller.dispose();
+  });
+
   test('self removal immediately hides in-memory transcript and identity',
       () async {
     final controller = controllerForTest();

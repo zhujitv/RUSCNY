@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertConversationActiveLocked,
   assertMessageAuthorizationLocked,
+  assertParticipantCanSpeak,
   assertParticipantActiveLocked,
   PROCESSING_LEASE_MS,
   shouldBroadcastTranslationFailure,
@@ -118,6 +119,24 @@ describe('conversation row guard before FINAL', () => {
   });
 });
 
+describe('speech lifecycle rules', () => {
+  const now = new Date('2026-07-18T12:00:00.000Z');
+  const future = new Date(now.getTime() + 60_000);
+
+  it('allows the host to speak before another participant joins', () => {
+    expect(() => assertParticipantCanSpeak('WAITING', 'HOST', future, now)).not.toThrow();
+  });
+
+  it('keeps a waiting guest read-only and rejects ended rooms', () => {
+    expect(() => assertParticipantCanSpeak('WAITING', 'GUEST', future, now)).toThrowError(
+      expect.objectContaining({ code: 'ROOM_NOT_ACTIVE', statusCode: 403 }),
+    );
+    expect(() => assertParticipantCanSpeak('ENDED', 'HOST', future, now)).toThrowError(
+      expect.objectContaining({ code: 'ROOM_NOT_ACTIVE', statusCode: 403 }),
+    );
+  });
+});
+
 describe('FINAL authorization revalidation', () => {
   const now = new Date('2026-07-18T12:00:00.000Z');
   const activeConversation = {
@@ -134,6 +153,10 @@ describe('FINAL authorization revalidation', () => {
         removedAt: null,
         leftAt: null,
         presence: 'ONLINE',
+        role: 'GUEST',
+        displayName: 'User A',
+        company: null,
+        preferredLanguage: 'zh',
         userId: 'user-a',
         guestIdentityId: null,
       }]);
@@ -150,8 +173,43 @@ describe('FINAL authorization revalidation', () => {
         sessionId: 'session-a',
       },
       now,
-    )).resolves.toBeUndefined();
+    )).resolves.toMatchObject({ userId: 'user-a', role: 'GUEST' });
     expect(queryRaw).toHaveBeenCalledTimes(4);
+  });
+
+  it('uses the locked HOST participant role to allow speech in WAITING', async () => {
+    const queryRaw = vi.fn()
+      .mockResolvedValueOnce([{
+        status: 'WAITING',
+        expiresAt: new Date(now.getTime() + 60_000),
+      }])
+      .mockResolvedValueOnce([{ id: 'host-a', status: 'ACTIVE' }])
+      .mockResolvedValueOnce([{ sessionId: 'session-a', revokedAt: null }])
+      .mockResolvedValueOnce([{
+        removedAt: null,
+        leftAt: null,
+        presence: 'ONLINE',
+        role: 'HOST',
+        displayName: 'Host A',
+        company: 'Host Company',
+        preferredLanguage: 'zh',
+        userId: 'host-a',
+        guestIdentityId: null,
+      }]);
+    const tx = { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient;
+
+    await expect(assertMessageAuthorizationLocked(
+      tx,
+      'conversation-a',
+      'participant-host',
+      {
+        subjectId: 'host-a',
+        role: 'USER',
+        deviceId: 'device-a',
+        sessionId: 'session-a',
+      },
+      now,
+    )).resolves.toMatchObject({ role: 'HOST', userId: 'host-a' });
   });
 
   it('rejects a device revoked while an external provider call was in flight', async () => {

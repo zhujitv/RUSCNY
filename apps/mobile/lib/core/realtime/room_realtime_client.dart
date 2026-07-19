@@ -100,6 +100,8 @@ final class RoomRealtimeClient {
   io.Socket? _socket;
   String? _conversationId;
   Future<int> Function()? _lastSequence;
+  Timer? _roomJoinTimer;
+  int _roomJoinAttempts = 0;
 
   Stream<RoomEvent> get events => _events.stream;
 
@@ -138,10 +140,12 @@ final class RoomRealtimeClient {
       if (_socket != socket) return;
       // A transport connection is not yet an authorized room membership.
       _events.add(const SocketStatusChanged(RoomSocketStatus.connecting));
+      _roomJoinAttempts = 0;
       await _emitJoin(socket);
     });
     socket.onDisconnect((reason) {
       if (_socket != socket) return;
+      _roomJoinTimer?.cancel();
       final serverForced = reason?.toString() == 'io server disconnect';
       _events.add(
         SocketStatusChanged(
@@ -177,6 +181,8 @@ final class RoomRealtimeClient {
     });
     socket.on('room.joined', (payload) {
       if (_socket != socket) return;
+      _roomJoinTimer?.cancel();
+      _roomJoinAttempts = 0;
       final json = _json(payload);
       final eventConversation = json['conversationId']?.toString();
       if (eventConversation != null && eventConversation != conversationId) {
@@ -286,12 +292,16 @@ final class RoomRealtimeClient {
         ..add(const SocketStatusChanged(RoomSocketStatus.ended));
     });
     socket.on('room.error', (payload) {
-      if (_socket == socket) _events.add(_failure(payload));
+      if (_socket == socket) {
+        _roomJoinTimer?.cancel();
+        _events.add(_failure(payload));
+      }
     });
     socket.connect();
   }
 
   Future<void> _emitJoin(io.Socket socket) async {
+    _roomJoinTimer?.cancel();
     final conversationId = _conversationId;
     final sequence = await _lastSequence?.call() ?? 0;
     if (_socket != socket || conversationId == null) return;
@@ -299,9 +309,39 @@ final class RoomRealtimeClient {
       'conversationId': conversationId,
       'lastSequence': sequence,
     });
+    _roomJoinTimer = Timer(const Duration(seconds: 12), () {
+      if (_socket != socket || _conversationId != conversationId) return;
+      _roomJoinAttempts += 1;
+      if (_roomJoinAttempts < 3 && socket.connected) {
+        _events.add(
+          const SocketStatusChanged(
+            RoomSocketStatus.reconnecting,
+            reason: 'room join timeout',
+          ),
+        );
+        unawaited(_emitJoin(socket));
+        return;
+      }
+      _events
+        ..add(
+          const SocketStatusChanged(
+            RoomSocketStatus.reconnectFailed,
+            reason: 'room join timeout',
+          ),
+        )
+        ..add(
+          const RoomFailure(
+            message: '实时同步连接超时，但仍可录音翻译；请点击重试连接',
+            code: 'ROOM_JOIN_TIMEOUT',
+          ),
+        );
+    });
   }
 
   void disconnect() {
+    _roomJoinTimer?.cancel();
+    _roomJoinTimer = null;
+    _roomJoinAttempts = 0;
     final socket = _socket;
     final conversationId = _conversationId;
     _socket = null;

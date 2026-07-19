@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { Prisma, type Participant, type TranslationMessage } from '@prisma/client';
+import { Prisma, type Participant, type ParticipantRole, type TranslationMessage } from '@prisma/client';
 import { z } from 'zod';
 import { authenticate } from '../auth.js';
 import { config } from '../config.js';
@@ -104,10 +104,8 @@ async function processMessage(input: ProcessInput) {
   const conversation = await getConversationForAuth(input.request.auth, input.conversationId, {
     history: true,
   });
-  if (conversation.status !== 'ACTIVE' || conversation.expiresAt <= new Date()) {
-    throw forbidden('ROOM_NOT_ACTIVE', '会议已结束或过期');
-  }
   const participant = await getParticipant(input.request.auth, input.conversationId);
+  assertParticipantCanSpeak(conversation.status, participant.role, conversation.expiresAt);
   if (participant.preferredLanguage !== input.sourceLanguage) {
     throw forbidden(
       'PARTICIPANT_LANGUAGE_MISMATCH',
@@ -276,7 +274,7 @@ export async function acquireProcessingAttempt(
       // revoked while the upload body is being received. Revalidate the
       // server-owned identity under the same lock order used by FINAL before
       // allocating a sequence or sending audio/text to an external provider.
-      await assertMessageAuthorizationLocked(
+      const lockedParticipant = await assertMessageAuthorizationLocked(
         tx,
         input.conversationId,
         participant.id,
@@ -285,7 +283,9 @@ export async function acquireProcessingAttempt(
       const advanced = await tx.conversation.updateMany({
         where: {
           id: input.conversationId,
-          status: 'ACTIVE',
+          status: lockedParticipant.role === 'HOST'
+            ? { in: ['WAITING', 'ACTIVE'] }
+            : 'ACTIVE',
           expiresAt: { gt: new Date() },
         },
         data: { maxSequence: { increment: 1 } },
@@ -293,11 +293,6 @@ export async function acquireProcessingAttempt(
       if (advanced.count !== 1) {
         throw forbidden('ROOM_NOT_ACTIVE', '会议已结束或过期');
       }
-      const lockedParticipant = await assertParticipantActiveLocked(
-        tx,
-        input.conversationId,
-        participant.id,
-      );
       if (lockedParticipant.preferredLanguage !== input.sourceLanguage) {
         throw forbidden(
           'PARTICIPANT_LANGUAGE_MISMATCH',
@@ -586,18 +581,45 @@ interface LockedConversation {
   expiresAt: Date;
 }
 
-export async function assertConversationActiveLocked(
+function isSpeechOpen(status: string, role: ParticipantRole): boolean {
+  return status === 'ACTIVE' || (status === 'WAITING' && role === 'HOST');
+}
+
+export function assertParticipantCanSpeak(
+  status: string,
+  role: ParticipantRole,
+  expiresAt: Date,
+  now = new Date(),
+): void {
+  if (expiresAt <= now || !isSpeechOpen(status, role)) {
+    throw forbidden(
+      'ROOM_NOT_ACTIVE',
+      status === 'WAITING'
+        ? '会议等待参会者加入时只有主持人可以先发言'
+        : '会议已结束或过期',
+    );
+  }
+}
+
+export async function lockConversationForSpeech(
   tx: Prisma.TransactionClient,
   conversationId: string,
-  now?: Date,
-): Promise<void> {
+): Promise<LockedConversation | undefined> {
   const rows = await tx.$queryRaw<LockedConversation[]>`
     SELECT "status", "expiresAt"
     FROM "Conversation"
     WHERE "id" = ${conversationId}
     FOR UPDATE
   `;
-  const conversation = rows[0];
+  return rows[0];
+}
+
+export async function assertConversationActiveLocked(
+  tx: Prisma.TransactionClient,
+  conversationId: string,
+  now?: Date,
+): Promise<void> {
+  const conversation = await lockConversationForSpeech(tx, conversationId);
   if (
     !conversation ||
     conversation.status !== 'ACTIVE' ||
@@ -670,8 +692,11 @@ export async function assertMessageAuthorizationLocked(
   participantId: string,
   auth: AuthContext,
   now = new Date(),
-): Promise<void> {
-  await assertConversationActiveLocked(tx, conversationId, now);
+): Promise<LockedParticipant> {
+  const conversation = await lockConversationForSpeech(tx, conversationId);
+  if (!conversation || conversation.expiresAt <= now) {
+    throw forbidden('ROOM_NOT_ACTIVE', '会议已结束或过期');
+  }
 
   if (auth.role === 'GUEST') {
     const guestIdentityId = auth.guestIdentityId ?? auth.subjectId;
@@ -698,7 +723,13 @@ export async function assertMessageAuthorizationLocked(
     if (participant.guestIdentityId !== guestIdentityId || participant.userId) {
       throw forbidden('NOT_A_PARTICIPANT', '您不是该会议参与者');
     }
-    return;
+    assertParticipantCanSpeak(
+      conversation.status,
+      participant.role,
+      conversation.expiresAt,
+      now,
+    );
+    return participant;
   }
 
   const users = await tx.$queryRaw<LockedUserAuthorization[]>`
@@ -730,6 +761,13 @@ export async function assertMessageAuthorizationLocked(
   if (participant.userId !== auth.subjectId || participant.guestIdentityId) {
     throw forbidden('NOT_A_PARTICIPANT', '您不是该会议参与者');
   }
+  assertParticipantCanSpeak(
+    conversation.status,
+    participant.role,
+    conversation.expiresAt,
+    now,
+  );
+  return participant;
 }
 
 async function lockParticipant(
@@ -738,7 +776,8 @@ async function lockParticipant(
   participantId: string,
 ): Promise<LockedParticipant | undefined> {
   const rows = await tx.$queryRaw<LockedParticipant[]>`
-    SELECT "removedAt", "leftAt", "presence", "userId", "guestIdentityId"
+    SELECT "removedAt", "leftAt", "presence", "role", "displayName", "company",
+           "preferredLanguage", "userId", "guestIdentityId"
     FROM "Participant"
     WHERE "id" = ${participantId} AND "conversationId" = ${conversationId}
     FOR UPDATE

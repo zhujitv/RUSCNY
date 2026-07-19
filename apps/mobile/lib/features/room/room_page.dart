@@ -76,9 +76,8 @@ final class _RoomPageState extends ConsumerState<RoomPage>
     final isConversationOwner = conversation != null &&
         session != null &&
         conversation.ownerId == session.userId;
-    final canRecord = conversation?.canSpeak == true &&
-        state.connection == RoomSocketStatus.connected &&
-        state.action == RoomAction.idle;
+    final canSpeak = conversation?.canSpeakAs(session?.userId) == true;
+    final canRecord = canSpeak && state.action == RoomAction.idle;
     final canReviewMessages = conversation?.status == ConversationStatus.active;
     return PopScope(
       canPop: state.action != RoomAction.recording,
@@ -279,9 +278,7 @@ final class _RoomPageState extends ConsumerState<RoomPage>
                           const SizedBox(width: 8),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: conversation?.canSpeak == true &&
-                                      state.connection ==
-                                          RoomSocketStatus.connected
+                              onPressed: canSpeak
                                   ? () => ref
                                       .read(
                                         roomControllerProvider(
@@ -297,6 +294,14 @@ final class _RoomPageState extends ConsumerState<RoomPage>
                         ],
                       ),
                       const SizedBox(height: 10),
+                    ],
+                    if (canSpeak &&
+                        state.connection != RoomSocketStatus.connected) ...[
+                      const AppText(
+                        '实时同步正在恢复，仍可录音翻译，结果会在连接恢复后自动补齐',
+                        style: TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
                     ],
                     Row(
                       children: [
@@ -818,7 +823,7 @@ final class _RoomSummary extends StatelessWidget {
   }
 
   static String _statusLabel(ConversationStatus? status) => switch (status) {
-        ConversationStatus.waiting => '等待客户',
+        ConversationStatus.waiting => '等待参会者',
         ConversationStatus.active => '进行中',
         ConversationStatus.ended => '已结束',
         ConversationStatus.expired => '已过期',

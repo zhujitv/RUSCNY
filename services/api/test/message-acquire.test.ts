@@ -29,6 +29,13 @@ const guestAuth = {
   sessionId: 'session-a',
 };
 
+const hostAuth = {
+  subjectId: 'host-a',
+  role: 'USER' as const,
+  deviceId: 'host-device-a',
+  sessionId: 'host-session-a',
+};
+
 function activeParticipant(overrides: Record<string, unknown> = {}) {
   return {
     removedAt: null,
@@ -69,6 +76,28 @@ function configureAuthorizationRows(
   });
 }
 
+function configureWaitingHostAuthorizationRows() {
+  mocks.transaction.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+    const sql = Array.from(strings).join('?');
+    if (sql.includes('FROM "Conversation"')) {
+      return [{ status: 'WAITING', expiresAt: new Date(Date.now() + 60_000) }];
+    }
+    if (sql.includes('FROM "User"')) return [{ id: 'host-a', status: 'ACTIVE' }];
+    if (sql.includes('FROM "UserDevice"')) {
+      return [{ sessionId: 'host-session-a', revokedAt: null }];
+    }
+    if (sql.includes('FROM "Participant"')) {
+      return [activeParticipant({
+        role: 'HOST',
+        displayName: 'Host locked',
+        userId: 'host-a',
+        guestIdentityId: null,
+      })];
+    }
+    return [];
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.prisma.translationMessage.findUnique.mockResolvedValue(null);
@@ -87,6 +116,40 @@ beforeEach(() => {
 });
 
 describe('new message acquisition', () => {
+  it('allocates a sequence for the locked host while the room is WAITING', async () => {
+    configureWaitingHostAuthorizationRows();
+
+    await acquireProcessingAttempt({
+      request: { auth: hostAuth } as never,
+      conversationId: 'conversation-a',
+      idempotencyKey: 'message-key-host-waiting',
+      sourceLanguage: 'zh',
+      targetLanguage: 'ru',
+      sourceText: '主持人单人测试',
+    }, {
+      id: 'participant-host',
+      role: 'GUEST',
+      displayName: 'Untrusted client role',
+      company: null,
+      preferredLanguage: 'zh',
+    });
+
+    expect(mocks.transaction.conversation.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'conversation-a',
+        status: { in: ['WAITING', 'ACTIVE'] },
+        expiresAt: { gt: expect.any(Date) },
+      },
+      data: { maxSequence: { increment: 1 } },
+    });
+    expect(mocks.transaction.translationMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        speakerRole: 'HOST',
+        speakerDisplayName: 'Host locked',
+      }),
+    });
+  });
+
   it('checks identity and participant under the Conversation lock before creating PROCESSING', async () => {
     configureAuthorizationRows(activeParticipant({ removedAt: new Date(), presence: 'REMOVED' }));
 
