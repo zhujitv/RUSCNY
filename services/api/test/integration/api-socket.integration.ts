@@ -154,6 +154,7 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
       request('POST', '/v1/auth/guest', undefined, {
         displayName: 'Russian Guest',
         company: 'RU Trade',
+        email: 'race-russian-guest@example.test',
         preferredLanguage: 'ru',
         deviceId: deviceId('race-russian-guest'),
         roomToken: conversation.roomToken,
@@ -291,19 +292,6 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
     );
     expect(exported.statusCode).toBe(200);
     expect(exported.body).toContain('Ivan Snapshot｜RU Snapshot LLC｜ru');
-    const summary = await request(
-      'POST',
-      `/v1/conversations/${conversation.id}/summary`,
-      host.accessToken,
-      {},
-    );
-    expect(summary.statusCode).toBe(200);
-    expect(summary.json().data.summary.participantRoster).toHaveLength(2);
-    expect(summary.json().data.summary.coreDiscussion[0]).toMatchObject({
-      participantId,
-      speakerDisplayName: 'Ivan Snapshot',
-    });
-
     expect((await request(
       'DELETE',
       `/v1/conversations/${conversation.id}/participants/${participantId}`,
@@ -313,7 +301,6 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
       `/v1/conversations/${conversation.id}/messages`,
       `/v1/conversations/${conversation.id}/participants`,
       `/v1/conversations/${conversation.id}/export?format=txt`,
-      `/v1/conversations/${conversation.id}/summary`,
     ]) {
       const denied = await request('GET', finalPath, invitee.accessToken);
       expect(denied.statusCode).toBe(404);
@@ -328,6 +315,29 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
       'GET',
       `/v1/conversations/${conversation.id}/participants`,
       outsider.accessToken,
+    )).statusCode).toBe(404);
+    expect((await request(
+      'POST',
+      `/v1/conversations/${conversation.id}/end`,
+      host.accessToken,
+      {},
+    )).statusCode).toBe(200);
+    const summary = await request(
+      'POST',
+      `/v1/conversations/${conversation.id}/summary`,
+      host.accessToken,
+      {},
+    );
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().data.summary.participantRoster).toHaveLength(2);
+    expect(summary.json().data.summary.coreDiscussion[0]).toMatchObject({
+      participantId,
+      speakerDisplayName: 'Ivan Snapshot',
+    });
+    expect((await request(
+      'GET',
+      `/v1/conversations/${conversation.id}/summary`,
+      invitee.accessToken,
     )).statusCode).toBe(404);
     expect((await request(
       'DELETE',
@@ -499,6 +509,7 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
     const response = await request('POST', '/v1/auth/guest', undefined, {
       displayName: 'Expired Guest',
       company: 'Expired LLC',
+      email: 'expired-guest@example.test',
       preferredLanguage: 'ru',
       deviceId: deviceId('expired-guest'),
       inviteToken: conversation.roomToken,
@@ -519,8 +530,8 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
       customer.accessToken,
       {},
     );
-    expect(forbiddenRotate.statusCode).toBe(403);
-    expect(forbiddenRotate.json().code).toBe('FORBIDDEN');
+    expect(forbiddenRotate.statusCode).toBe(404);
+    expect(forbiddenRotate.json().code).toBe('CONVERSATION_NOT_FOUND');
 
     const rotated = await request(
       'POST',
@@ -592,6 +603,7 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
     const first = await request('POST', '/v1/auth/guest', undefined, {
       displayName: 'Guest Session',
       company: 'Guest LLC',
+      email: 'guest-session@example.test',
       preferredLanguage: 'ru',
       deviceId: guestDeviceId,
       inviteToken: conversation.roomToken,
@@ -608,6 +620,7 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
     const second = await request('POST', '/v1/auth/guest', undefined, {
       displayName: 'Guest Session',
       company: 'Guest LLC',
+      email: 'guest-session@example.test',
       preferredLanguage: 'ru',
       deviceId: guestDeviceId,
       inviteToken: conversation.roomToken,
@@ -812,6 +825,7 @@ describe.sequential('Socket.IO authentication and backfill', () => {
     const changedDeviceWithOldInvite = await request('POST', '/v1/auth/guest', undefined, {
       displayName: 'Changed Device',
       company: 'Changed Device LLC',
+      email: 'changed-device@example.test',
       preferredLanguage: 'ru',
       deviceId: deviceId('changed-device-old-invite'),
       inviteToken: conversation.roomToken,
@@ -821,6 +835,7 @@ describe.sequential('Socket.IO authentication and backfill', () => {
     const replacementGuest = await request('POST', '/v1/auth/guest', undefined, {
       displayName: 'Replacement Guest',
       company: 'Replacement LLC',
+      email: 'replacement-guest@example.test',
       preferredLanguage: 'ru',
       deviceId: deviceId('replacement-guest'),
       inviteToken: conversation.roomToken,

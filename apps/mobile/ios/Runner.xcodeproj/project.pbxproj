@@ -5,7 +5,7 @@
 	objectVersion = 54;
 	objects = {
 
-	/* Begin PBXBuildFile section */
+/* Begin PBXBuildFile section */
 		1498D2341E8E89220040F4C2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* AppDelegate.swift */; };
 		97C146F91CF9000F007C117D /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 97C146F81CF9000F007C117D /* GeneratedPluginRegistrant.m */; };
 		97C146FB1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Assets.xcassets */; };

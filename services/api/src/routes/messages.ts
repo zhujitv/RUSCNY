@@ -104,6 +104,9 @@ async function processMessage(input: ProcessInput) {
   const conversation = await getConversationForAuth(input.request.auth, input.conversationId, {
     history: true,
   });
+  if (conversation.status !== 'ACTIVE' || conversation.expiresAt <= new Date()) {
+    throw forbidden('ROOM_NOT_ACTIVE', '会议已结束或过期');
+  }
   const participant = await getParticipant(input.request.auth, input.conversationId);
   if (participant.preferredLanguage !== input.sourceLanguage) {
     throw forbidden(
