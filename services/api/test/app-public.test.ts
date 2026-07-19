@@ -40,6 +40,7 @@ describe('public Fastify surface without realtime or database queries', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(response.headers['content-security-policy']).toContain("media-src https://media.ruscny.net");
     expect(response.body).toContain('RUSCNY');
     expect(response.body).toContain('中俄实时语音翻译');
     expect(response.body).toContain('/privacy');

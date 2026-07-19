@@ -21,6 +21,7 @@ const pageHeaders = (reply: FastifyReply) => reply
     "script-src 'self'",
     "style-src 'self'",
     "img-src 'self' data:",
+    "media-src https://media.ruscny.net",
     "connect-src 'self'",
     "font-src 'self'",
     "object-src 'none'",
