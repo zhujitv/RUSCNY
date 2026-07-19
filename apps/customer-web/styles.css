@@ -59,7 +59,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .button-quiet { border-color: #cfddd5; background: rgb(255 255 255 / 65%); color: var(--forest); }
 .button-quiet:hover { background: #fff; }
 
-.hero { min-height: 760px; padding-top: 100px; padding-bottom: 112px; display: grid; grid-template-columns: minmax(0, .86fr) minmax(560px, 1.14fr); align-items: center; gap: 70px; }
+.hero { min-height: 680px; padding-top: 72px; padding-bottom: 84px; display: grid; grid-template-columns: minmax(0, .94fr) minmax(540px, 1.06fr); align-items: center; gap: 48px; }
 .hero-copy { position: relative; z-index: 2; }
 .eyebrow { margin: 0 0 22px; display: flex; align-items: center; gap: 10px; color: var(--forest-3); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .eyebrow span { width: 24px; height: 2px; background: var(--forest-3); }
@@ -67,14 +67,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .eyebrow.light { color: #cfe8de; }
 .eyebrow.light span { background: var(--lime); }
 .hero h1 { margin: 0; color: var(--forest); font-size: clamp(48px, 5.1vw, 76px); font-weight: 780; line-height: 1.03; letter-spacing: -.065em; }
-.hero-lead { max-width: 570px; margin: 27px 0 0; color: #53655e; font-size: 18px; line-height: 1.8; }
-.hero-actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 12px; }
-.trust-row { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 16px 22px; color: #53615b; font-size: 11px; }
+.hero-lead { max-width: 620px; margin: 24px 0 0; color: #53655e; font-size: 17px; line-height: 1.75; }
+.hero-values { max-width: 650px; margin-top: 26px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.hero-values article { min-height:96px; padding:15px 14px; display:flex; flex-direction:column; justify-content:center; gap:7px; border:1px solid #d9e6df; border-radius:14px; background:rgb(255 255 255 / 68%); box-shadow:0 9px 24px rgb(28 72 58 / 5%); }
+.hero-values strong { color:var(--forest); font-size:14px; letter-spacing:-.02em; }
+.hero-values span { color:#687970; font-size:10px; line-height:1.5; }
+.hero-actions { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 12px; }
+.trust-row { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 16px 22px; color: #53615b; font-size: 11px; }
 .trust-row span { display: flex; align-items: center; gap: 7px; }
 .trust-row i { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: var(--mint); color: var(--forest-3); font-size: 10px; font-style: normal; }
 .trust-row b { font-weight: 650; }
 
-.hero-product { position: relative; min-height: 570px; display: grid; place-items: center; }
+.hero-product { position: relative; min-height: 530px; display: grid; place-items: center; }
 .hero-product::before { content: ""; position: absolute; width: 590px; height: 590px; border-radius: 50%; background: radial-gradient(circle, #d6eee4 0, #ebf4ef 55%, transparent 71%); }
 .orbit { position: absolute; border: 1px solid rgb(54 121 103 / 14%); border-radius: 50%; }
 .orbit-one { width: 510px; height: 510px; }
@@ -224,7 +228,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 680px) {
   .section-shell, .nav-shell { width:min(calc(100% - 28px),1200px); }.section-block { padding-top:86px; padding-bottom:86px; }
   .brand-copy small { display:none; }.nav-actions { margin-left:0; }.locale-picker select { min-height:38px; }
-  .hero { padding-top:56px; padding-bottom:70px; gap:50px; }.hero h1 { font-size:46px; }.hero-lead { font-size:16px; }.hero-actions .button { width:100%; }.trust-row { display:grid; }
+  .hero { padding-top:50px; padding-bottom:64px; gap:42px; }.hero h1 { font-size:46px; }.hero-lead { font-size:16px; }.hero-values { grid-template-columns:1fr; }.hero-values article { min-height:76px; }.hero-actions .button { width:100%; }.trust-row { display:grid; }
   .hero-product { min-height:420px; }.hero-product::before { width:420px; height:420px; }.orbit-one { width:350px; height:350px; }.orbit-two { width:470px; height:470px; }.product-window { width:580px; transform:scale(.68) rotate(1.2deg); }.floating-note { display:none; }
   .proof-inner { padding:22px 0; flex-wrap:wrap; gap:12px 17px; }.proof-inner p { width:100%; margin:0; text-align:center; }
   .section-heading h2,.security-copy h2,.download-copy h2,.final-inner h2 { font-size:37px; }
