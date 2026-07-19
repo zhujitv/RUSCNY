@@ -41,7 +41,14 @@ export async function persistTtsAudio(upstreamUrl: string): Promise<string> {
   } catch {
     throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
   }
-  if (url.protocol !== 'https:' || !isAliyunAssetHost(url.hostname)) {
+  if (!isAliyunAssetHost(url.hostname)) {
+    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
+  }
+  // DashScope currently returns a short-lived HTTP URL on its own Beijing OSS
+  // result host. Upgrade only after the hostname has passed the exact Aliyun
+  // boundary check; arbitrary HTTP origins remain rejected.
+  if (url.protocol === 'http:') url.protocol = 'https:';
+  if (url.protocol !== 'https:') {
     throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
   }
 

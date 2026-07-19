@@ -134,12 +134,24 @@ describe('TTS asset persistence and delivery', () => {
     expect(routeMocks.authorizeConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts only HTTPS assets on the trusted Aliyun host boundary', async () => {
-    const fetchMock = vi.fn();
+  it('upgrades trusted Aliyun HTTP assets but rejects lookalike hosts', async () => {
+    const bytes = Buffer.from('trusted-upgraded-audio');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(bytes, {
+      status: 200,
+      headers: { 'content-type': 'audio/mpeg', 'content-length': String(bytes.length) },
+    }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(
       persistTtsAudio('http://tts-result.oss-cn-beijing.aliyuncs.com/audio.mp3'),
-    ).rejects.toMatchObject({ code: 'TTS_ASSET_REJECTED' });
+    ).resolves.toMatch(/^asset:tts-[0-9a-f-]+\.mp3$/);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        protocol: 'https:',
+        hostname: 'tts-result.oss-cn-beijing.aliyuncs.com',
+      }),
+      expect.any(Object),
+    );
+    fetchMock.mockClear();
     await expect(
       persistTtsAudio('https://aliyuncs.com.evil.example/audio.mp3'),
     ).rejects.toMatchObject({ code: 'TTS_ASSET_REJECTED' });
