@@ -40,10 +40,10 @@ Mock 翻译适配器只用于开发和自动化测试；生产配置为 mock 会
 
 ## 验证
 
-后端：`npm run build && npm run typecheck && npm test`。仓库 CI 另配置 PostgreSQL/Redis、`prisma migrate deploy`、API/Socket 集成套件和生产 Docker target 构建；没有 GitHub Actions 运行记录前，只能称为“已配置”，不能称为 CI 已通过。
+后端：`npm run build && npm run typecheck && npm test`。仓库 CI 另使用 PostgreSQL/Redis、`prisma migrate deploy`、API/Socket 集成套件和生产 Docker target 构建进行校验。
 
 Flutter：`cd apps/mobile && flutter analyze && flutter test`
 
-2026-07-19 当前工作区证据：Prisma Client generate、schema validate、schema SQL diff、后端 build/typecheck 均通过，30 个后端测试文件共 196/196 通过；生产依赖审计为 0 个已知漏洞，客户官网账号注册/登录与 H5 Web 回归 11/11 通过。Flutter 3.44.6 / Dart 3.12.2 下 `dart analyze lib test` 为 0 问题、Flutter 测试 51/51 通过；使用正式域名参数的 Android debug APK 已重新构建。`flutter analyze` 包装命令在当前中文工作区路径触发 analysis-server LSP 截断异常，但直接 Dart analyzer 已通过；iOS 尚未构建。当前机器没有可用的 PostgreSQL/Redis 连接，因此当前 16 个正式迁移中的 `202607190001`~`009` 尚未在真实数据库执行，PostgreSQL/Socket.IO 集成套件与 Redis 跨实例也未重跑。完整证据与未验证边界见 `docs/TEST_REPORT.md`。
+2026-07-19 当前证据：Prisma Client generate、schema validate、schema SQL diff、后端 build/typecheck 均通过，30 个后端测试文件共 196/196 通过；生产依赖审计为 0 个已知漏洞，客户官网账号注册/登录与 H5 Web 回归 11/11 通过。[GitHub CI](https://github.com/zhujitv/RUSCNY/actions/runs/29676541364) 已在英文路径下完成全部 16 个 PostgreSQL 迁移、13/13 API/Socket 集成测试、生产 Docker 镜像构建、`flutter analyze`、51/51 Flutter 测试、Android debug APK 和 iOS Simulator App 构建。当前中文本地路径下的 `flutter analyze` 包装命令仍会触发 analysis-server LSP 截断，但相同代码已由 CI 的 Flutter analyzer 验证。Redis 两个 API 副本的跨实例故障演练仍未执行。完整证据与未验证边界见 `docs/TEST_REPORT.md`。
 
 真机、App Link、Universal Link、TestFlight 与阿里云生产翻译仍需使用真实域名、开发者账号和供应商凭据完成最终验收。未安装 App 的安全下载引导页与 association 模板位于 `deploy/deep-links`；详见 `docs`。

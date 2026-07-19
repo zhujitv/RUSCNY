@@ -27,8 +27,8 @@
 
 ## 仍需真实环境关闭
 
-- Flutter 3.44.6 / Dart 3.12.2 下直接 `dart analyze lib test` 0 问题、Flutter 测试 51/51、Android debug build 通过；`flutter analyze` 包装命令仍受中文工作区路径下 analysis-server LSP 截断影响，iOS build 未执行。
-- 当前没有 PostgreSQL/Redis 测试连接；`202607190001`~`009` 尚未在真实数据库执行，多 API worker 的 CAS 行为需故障注入验证。
+- Flutter 3.44.6 / Dart 3.12.2 下本地直接 `dart analyze lib test` 0 问题、Flutter 测试 51/51、Android debug build 通过；GitHub CI 另已通过 `flutter analyze`、51/51 测试、Android debug APK 和 iOS Simulator App 构建。
+- GitHub CI 已在 PostgreSQL 16 上应用全部 16 个迁移并通过 13/13 API/Socket 集成测试；多 API worker/Redis adapter 的跨实例 CAS、广播和故障恢复仍需双副本故障注入验证。
 - Resend 发信域 SPF/DKIM、真实中俄邮箱、限流、垃圾邮件、退信和投诉 webhook 尚未验证；当前 `SENT` 只表示供应商已受理。
 - 已进入外部邮件供应商处理中的邮件无法撤回；注销/撤权可阻止尚未开始的收件人，但生产验收仍应覆盖“撤权与供应商调用同时发生”的时间边界。
 - 当前结构化纪要生成是确定性/主持人确认路径；生产级生成式 AI 摘要 provider、质量评测和人工复核仍未接入。

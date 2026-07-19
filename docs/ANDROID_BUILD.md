@@ -177,4 +177,4 @@ flutter build appbundle --release \
 
 ## 9. 当前构建状态
 
-2026-07-19 当前工作区执行 `dart analyze apps/mobile/lib apps/mobile/test`，结果 0 issues；`flutter test` 50/50 通过。Android SDK 36、Temurin JDK 17.0.19 与 Gradle 8.11.1 已完成当前代码的 debug APK 编译验证，构建默认 API/Socket 为 `https://www.ruscny.net`，merged manifest 的 verified-link host 也已核对为 `www.ruscny.net`；内部构建 SHA-256 为 `4837e7ac101fa2a66601d51dfc56eb35d59b04c58078410dde5aa89e388ab4ab`。正式 API 尚未在该域名上线，因此此内部包未复制为对外测试包。`artifacts/zh-ru-translator-phone-test.apk` 仍是指向旧局域网开发服务的历史包；正式 API 部署后必须再构建 release APK/AAB。iOS build 仍未执行。
+2026-07-19 当前工作区执行 `dart analyze apps/mobile/lib apps/mobile/test`，结果 0 issues；`flutter test` 51/51 通过。Android SDK 36、Temurin JDK 17.0.19 与 Gradle 8.11.1 已完成当前代码的 debug APK 编译验证，构建默认 API/Socket 为 `https://www.ruscny.net`，merged manifest 的 verified-link host 也已核对为 `www.ruscny.net`；内部构建 SHA-256 为 `4837e7ac101fa2a66601d51dfc56eb35d59b04c58078410dde5aa89e388ab4ab`。GitHub CI 另在固定 Flutter 3.44.6、JDK 17、AGP 8.10.1 和 Gradle 8.11.1 下通过 `flutter analyze`、51/51 测试与 API 36 debug APK 构建。正式 API 尚未在该域名上线，因此此内部包未复制为对外测试包。`artifacts/zh-ru-translator-phone-test.apk` 仍是指向旧局域网开发服务的历史包；正式 API 部署后必须再构建 release APK/AAB。

@@ -109,7 +109,7 @@ docker build --file services/api/Dockerfile --target migration \
 
 末尾的 `.` 是必要的 monorepo build context：Dockerfile 读取根 `package-lock.json` 与 workspace manifests；不能改回 `services/api` 子目录 context。runtime target 只保留 production dependencies/生成的 Prisma Client/编译产物，migration target 单独保留 Prisma CLI。每次发布只运行一个 migration job，API 副本本身不执行迁移。
 
-仓库 CI 已配置固定 Node、PostgreSQL/Redis 服务、`prisma migrate deploy`、build/typecheck、单元测试、独立 API/Socket 集成套件和 runtime image build。GitHub CI 尚未实际运行时，不能把“已配置”写成“已通过”；实际数量和结论以本次测试输出及 [测试报告](./TEST_REPORT.md) 为准，不在部署文档硬编码易过期的测试计数。
+仓库 CI 已配置固定 Node、PostgreSQL/Redis 服务、`prisma migrate deploy`、build/typecheck、单元测试、独立 API/Socket 集成套件和 runtime image build。2026-07-19 的 GitHub CI 已成功完成这些校验；实际数量、运行链接和未验证边界以 [测试报告](./TEST_REPORT.md) 为准，不在部署文档硬编码易过期的测试计数。
 
 生产镜像要求：
 

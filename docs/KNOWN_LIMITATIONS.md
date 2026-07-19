@@ -4,18 +4,16 @@
 
 ## 1. 当前交付状态
 
-本仓库是多人会议版本的工程交付，不等同于已经上架的生产 App。2026-07-19 当前工作区通过客户官网账号注册/登录与 H5 Web 回归 11/11、Prisma generate/validate/diff、后端 build/typecheck、196/196 单元测试和生产依赖审计（0 个已知漏洞）。Flutter/Dart 工具链可用，`dart analyze lib test` 0 问题、Flutter 测试 51/51，使用正式域名配置的 Android debug APK 已重新构建；`flutter analyze` 包装命令仍受中文工作区路径下的 analysis-server LSP 截断影响，iOS 尚未构建。API、Socket 和 App Link 配置指向最终域名 `www.ruscny.net`，但 DNS、HTTPS、同源反向代理和正式服务部署仍未验收。本机没有可用的 PostgreSQL/Redis 连接，因此本轮九条 `202607190001`~`009` 迁移、PostgreSQL/Socket.IO 集成与 Redis 跨实例未执行。旧基线的 13/13 单实例集成结果不作为当前加固版已复测证据。当前仍缺 Apple/Google 发布账号、release 签名材料、真机矩阵、阿里云生产凭据及已验证的邮件发信域。
+本仓库是多人会议版本的工程交付，不等同于已经上架的生产 App。2026-07-19 当前工作区通过客户官网账号注册/登录与 H5 Web 回归 11/11、Prisma generate/validate/diff、后端 build/typecheck、196/196 单元测试和生产依赖审计（0 个已知漏洞）。GitHub CI 已通过全部 16 个 PostgreSQL 迁移、13/13 API/Socket 集成测试、生产 Docker 镜像、Flutter analyzer、51/51 Flutter 测试、Android debug APK 和 iOS Simulator App 构建。API、Socket 和 App Link 配置指向最终域名 `www.ruscny.net`，但 DNS、HTTPS、同源反向代理和正式服务部署仍未验收。当前仍缺 Apple/Google 发布账号、release 签名材料、真机矩阵、Redis 两个 API 副本的跨实例故障演练、阿里云生产凭据及已验证的邮件发信域。
 
 下列项目必须在发布负责人提供真实环境后关闭：
 
 | 级别 | 限制 | 影响 | 关闭条件 |
 | --- | --- | --- | --- |
-| 阻断 | `flutter analyze` 包装命令在中文工作区路径触发 analysis-server LSP 截断；直接 `dart analyze lib test`、Flutter 测试和 Android debug build 已通过，但 iOS 未构建 | Dart 源码静态检查已有替代证据，Flutter 包装器路径问题和 Xcode/Pods 仍未证明 | 在英文 CI 工作区完成 `flutter analyze` 与 iOS Simulator build 并保留日志 |
-| 阻断 | Android wrapper JAR 未入库，CI 会下载 Gradle 8.11.1 官方 JAR并验 SHA-256；iOS 的 `GeneratedPluginRegistrant.h/.m` 已生成、被 Xcode 引用且纳入源码，但 `Generated.xcconfig`、Pods 等构建产物仍需受控工具链生成；本地 Android 成功不代表 CI/iOS 已成功 | Android 本地工具链已证明，但 CI 可重现性和 iOS 仍无证据 | 让固定 Flutter 3.44.6 的 Android debug build 与 iOS Simulator build 在 CI 成功，并保留日志 |
 | 阻断 | 已有当前正式域名配置的 debug APK，但没有 release APK/AAB/IPA/TestFlight | debug 包不能代表商店发布签名、生产服务或真机验收，不满足生产交付标准 | 使用发布签名生成正式产物，记录哈希/build/证书并真机安装验证 |
 | 阻断 | 未做 Android↔iPhone 真机互通 | 麦克风、播放、前后台与重连未证明 | 完成测试报告真机矩阵 |
 | 阻断 | 未用生产账号验证中/俄 ASR→MT→TTS | mock 不能证明准确率、音色或延迟 | 真实账号双方向语料和性能验收 |
-| 阻断 | 本轮九条迁移和新 API/Socket/邮件 worker 并发路径未在真实 PostgreSQL 重跑，Redis adapter 跨实例与 GitHub CI 也未实际运行 | 单元层通过，但不能替代真实事务锁、迁移和跨实例断连/恢复证据 | 隔离测试库执行 `prisma migrate deploy` 与 13+ 集成场景，再用 Redis 启动至少两个 API 实例验证 |
+| 阻断 | 全部 16 个迁移与 13/13 API/Socket 集成场景已在 CI PostgreSQL 通过，但 Redis adapter 尚未以两个 API 副本执行跨实例与故障恢复验证 | 单实例真实事务和迁移已证明，但不能代替跨实例广播、断连与限流证据 | 用 Redis 启动至少两个 API 副本，执行广播、移出、限流和 Redis 短断故障注入 |
 | 阻断 | Flutter `pubspec.lock` 已生成并在 CI 强制，但 CocoaPods `Podfile.lock` 仍缺失 | Dart 依赖已锁定，iOS 原生传递依赖仍可漂移 | 用固定 macOS/CocoaPods 解析并提交 `Podfile.lock`，再让 CI 以 lockfile/deployment 模式安装 |
 | 阻断 | 正式域名和 association 文件未托管 | App Link/Universal Link 不会被系统验证 | 正式 HTTPS 域名文件和冷/热启动测试通过 |
 | 阻断 | 隐私/协议仍含运营主体占位字段 | 不满足发布和透明度要求 | 法律审核并补齐主体、地域、期限、第三方 |

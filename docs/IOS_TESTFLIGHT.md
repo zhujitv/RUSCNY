@@ -156,4 +156,4 @@ TestFlight 测试说明至少写明：如何创建 Host、如何以 Guest 加入
 
 ## 10. 当前构建状态
 
-当前临时 Flutter `3.44.6` / Dart `3.12.2` 环境已完成 Dart 静态检查和 18 项 Flutter 测试，但未解析 CocoaPods、未执行 iOS Simulator build，也未配置 Apple 签名和 App Store Connect；因此没有可声明为已完成的 iOS App、IPA 或 TestFlight 构建。CI 已配置无签名 iOS Simulator build，但尚无 GitHub Actions 成功记录，也不能替代 Archive/TestFlight。
+当前 Flutter `3.44.6` / Dart `3.12.2` 环境已完成静态检查和 51/51 Flutter 测试。GitHub CI 已在 macOS 15 上成功解析 CocoaPods/Swift Package 并构建无签名 iOS Simulator `Runner.app`。Apple 签名、真机 Archive、IPA、App Store Connect 和 TestFlight 仍未执行；Simulator 成功不能替代这些发布验收。

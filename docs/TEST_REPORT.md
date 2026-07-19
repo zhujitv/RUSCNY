@@ -22,12 +22,12 @@
 
 当前开发环境已知：
 
-- 2026-07-19 当前工作区已通过后端 `build`、`typecheck`、Prisma Client 生成、schema validate 与从空模型生成 schema SQL diff。当前 schema 共 16 个正式迁移，其中 `202607190001`~`009` 未在本机真实 PostgreSQL 执行。
+- 2026-07-19 当前工作区已通过后端 `build`、`typecheck`、Prisma Client 生成、schema validate 与从空模型生成 schema SQL diff。GitHub CI 已在隔离的 PostgreSQL 16 上从空库成功应用全部 16 个正式迁移。
 - 后端单元测试：30 个测试文件、196/196 通过，新增覆盖统一 `USER` 注册、旧 HOST/CUSTOMER Token 滚动兼容以及旧客户端 role 输入不可提权；纪要邮件/供应商/模板专项仍为 15/15。客户官网主脚本、账号脚本、Admin、Reset、H5 五个 JavaScript 文件均通过 `node --check`。客户官网账号注册/登录与 H5 安全回归合计 11/11 通过，并断言账号页不再显示或提交账号类型；官网、账号页/别名、法律页面、静态资源、`no-store`、CSP、robots 和 sitemap 也纳入 Fastify 路由单测。本轮未重跑 coverage，旧覆盖率数字不再作为当前代码证据。
-- 2026-07-18 的旧基线曾在本地 PostgreSQL 应用当时 7 个迁移，并通过单实例、无 Redis 的 API/Socket.IO 集成套件 13/13，包含 1 Host + 4 中文注册用户 + 1 俄语临时用户。由于当前机器没有 Docker/PostgreSQL/Redis，该结果不能代替本轮加固迁移、新并发路径和 Redis 跨实例的复测。
+- GitHub CI 已在 PostgreSQL 16 上通过当前加固版 API/Socket.IO 集成套件 13/13，包含 1 Host + 4 中文注册用户 + 1 俄语临时用户、权限隔离、并发、邀请、移出、断线补拉和结束后只读。CI 提供了 Redis 服务，但未启动两个 API 副本，不能外推为 Redis 跨实例已验证。
 - `npm audit --omit=dev --json` 已成功执行：167 个生产依赖，0 个 low/moderate/high/critical 已知漏洞。
-- 移动端使用 Flutter `3.44.6` / Dart `3.12.2`；`dart analyze lib test` 为 0 issues，`flutter test` 51/51 通过，包含中文注册页无账号类型选择、俄文登录/访客界面和统一 `USER` 模型解析。`flutter analyze` 包装命令在当前中文工作区路径触发 analysis-server LSP JSON 截断异常，因此不把该包装命令写为通过；直接 analyzer 与测试已通过。
-- Android debug APK 已使用 `API_BASE_URL`/`SOCKET_URL=https://www.ruscny.net` 和 `APP_LINK_HOST=www.ruscny.net` 重新构建，merged manifest 的 HTTPS App Link host 已核验，当前 SHA-256 为 `4eecc8ad1f153d3cd3281900ab61e239fe3045781d69c3202fdb4f019104854d`。正式 API 尚未在该域名上线，因此该 debug 包仍不能作为生产登录验收包。iOS build、AAB/IPA、发布签名和真机安装仍未执行。
+- 移动端使用 Flutter `3.44.6` / Dart `3.12.2`；本地 `dart analyze lib test` 为 0 issues，GitHub CI 中 `flutter analyze` 为 0 issues，`flutter test` 51/51 通过，包含中文注册页无账号类型选择、俄文登录/访客界面和统一 `USER` 模型解析。中文本地路径下的 Flutter 包装命令问题保留为工具环境限制，不再是 CI 发布阻断。
+- Android debug APK 已使用 `API_BASE_URL`/`SOCKET_URL=https://www.ruscny.net` 和 `APP_LINK_HOST=www.ruscny.net` 在本地重新构建，merged manifest 的 HTTPS App Link host 已核验，当前 SHA-256 为 `4eecc8ad1f153d3cd3281900ab61e239fe3045781d69c3202fdb4f019104854d`。GitHub CI 另成功构建 Android API 36 debug APK 和无签名 iOS Simulator `Runner.app`。正式 API 尚未在该域名上线，因此这些内部产物仍不能作为生产登录验收包；AAB/IPA、发布签名、TestFlight 和真机安装仍未执行。
 - 正式域名已确定为 `www.ruscny.net`，但 DNS、TLS 和生产服务尚未在本轮验证；阿里云生产凭据及 Apple/Google 开发者账号未提供，真实 ASR→MT→TTS、App Link/Universal Link 托管和 TestFlight 尚未执行。
 - 本地单元/CI 使用 mock provider；mock 通过只证明编排与隔离，不证明中俄翻译质量。生产配置为 mock 会拒绝启动。
 
@@ -57,10 +57,10 @@ Prisma schema validate: PASS
 Build / typecheck: PASS / PASS
 Unit tests: 196 passed / 0 failed / 0 skipped (30 files)
 Coverage: NOT RE-RUN for the current code
-PostgreSQL migrations: NOT RUN for the current 16-migration schema; current shell has no live DATABASE_URL (old 2026-07-18 baseline: 7/7)
-PostgreSQL/Socket.IO integration: NOT RE-RUN (old 2026-07-18 baseline: 13/13)
+PostgreSQL migrations: PASS in GitHub CI, 16/16 applied from an empty PostgreSQL 16 database
+PostgreSQL/Socket.IO integration: PASS in GitHub CI, 13/13
 Redis adapter multi-instance integration: NOT RUN
-GitHub CI execution: NOT RUN / no successful run evidence yet
+GitHub CI execution: PASS for commit 5d1263e18ca2046b5b539a62c2db515d7f47686f (https://github.com/zhujitv/RUSCNY/actions/runs/29676541364)
 Run date: 2026-07-19
 ```
 
@@ -82,12 +82,12 @@ flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:3000
 
 ```text
 Flutter/Dart version: 3.44.6 / 3.12.2
-Dart analyze lib test: PASS, 0 issues (`flutter analyze` wrapper is blocked by an analysis-server LSP truncation on the Chinese workspace path)
+Dart analyze lib test: PASS, 0 issues locally; `flutter analyze`: PASS in GitHub CI
 Flutter tests: 51 passed / 0 failed
 Flutter line coverage: NOT RE-RUN after localization changes (previously 278/996)
 pubspec.lock: generated; CI configured with --enforce-lockfile
 Android debug compile verification: PASS with `https://www.ruscny.net`; manifest host verified
-iOS build: NOT RUN
+iOS Simulator debug build: PASS in GitHub CI; signed device Archive/IPA/TestFlight NOT RUN
 Current temporary APK SHA-256: 4eecc8ad1f153d3cd3281900ab61e239fe3045781d69c3202fdb4f019104854d
 ```
 
