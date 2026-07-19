@@ -86,3 +86,15 @@ test('social preview has the expected link-unfurl dimensions', async () => {
   assert.equal(image.readUInt32BE(16), 1200);
   assert.equal(image.readUInt32BE(20), 630);
 });
+
+test('mobile layout uses fluid widths for large visual modules', async () => {
+  const styles = await readFile(new URL('styles.css', directory), 'utf8');
+  const mobile = styles.match(/@media \(max-width: 680px\) \{([\s\S]*?)\n\}\n\n@media \(prefers-reduced-motion/);
+
+  assert.ok(mobile, 'mobile breakpoint is missing');
+  assert.doesNotMatch(mobile[1], /\.product-window\s*\{[^}]*width:\s*580px/);
+  assert.doesNotMatch(mobile[1], /\.language-bridge\s*\{[^}]*width:\s*720px/);
+  assert.match(mobile[1], /\.product-window\s*\{[^}]*width:100%/);
+  assert.match(mobile[1], /\.language-bridge\s*\{[^}]*width:100%/);
+  assert.match(mobile[1], /\.final-actions\s*\{[^}]*grid-template-columns:1fr/);
+});
