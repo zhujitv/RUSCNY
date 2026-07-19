@@ -137,6 +137,48 @@ describe('meeting summary provider', () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
+  it('keeps a grounded summary when an optional party view is attributed to the wrong speaker', async () => {
+    const invalidPartyView = {
+      ...validGenerated(),
+      partyViews: [{
+        participantId: 'participant-ru',
+        view: '根据中方的发言推断俄方已经确认。',
+        sourceSequences: [1],
+      }],
+    };
+    const provider = providerReturning(invalidPartyView);
+
+    await expect(provider.generate({
+      conversationTitle: '交付确认会', participants, messages,
+    })).resolves.toMatchObject({
+      draft: {
+        summarySourceSequences: [1, 2],
+        partyViews: [],
+        confirmedItems: [{ sourceSequences: [1] }],
+      },
+    });
+  });
+
+  it('accepts harmless provider variations without weakening source validation', async () => {
+    const provider = providerReturning({
+      ...validGenerated(),
+      summarySourceSequences: ['1', 2, 2],
+      confirmedItems: null,
+      openQuestions: undefined,
+      providerNote: 'extra model metadata',
+    });
+
+    await expect(provider.generate({
+      conversationTitle: '交付确认会', participants, messages,
+    })).resolves.toMatchObject({
+      draft: {
+        summarySourceSequences: [1, 2],
+        confirmedItems: [],
+        openQuestions: [],
+      },
+    });
+  });
+
   it('maps Aliyun rate limiting without exposing an upstream body', async () => {
     const provider = new AliyunMeetingSummaryProvider({
       ALIYUN_API_KEY: 'test-key',
@@ -177,4 +219,20 @@ function validGenerated(): GeneratedMeetingSummary {
     }],
     openQuestions: [],
   };
+}
+
+function providerReturning(content: unknown): AliyunMeetingSummaryProvider {
+  return new AliyunMeetingSummaryProvider({
+    ALIYUN_API_KEY: 'test-key',
+    ALIYUN_COMPATIBLE_BASE_URL: 'https://dashscope.example.test/v1',
+    ALIYUN_SUMMARY_MODEL: 'qwen-plus-test',
+    SUMMARY_MAX_MESSAGES: 100,
+    SUMMARY_MAX_INPUT_CHARACTERS: 100_000,
+    SUMMARY_REQUEST_TIMEOUT_MS: 5_000,
+  }, vi.fn(async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify(content) } }],
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch);
 }

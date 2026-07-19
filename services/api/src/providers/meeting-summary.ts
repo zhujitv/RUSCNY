@@ -2,30 +2,41 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { AppError } from '../errors.js';
 
-const sourceSequences = z.array(z.number().int().positive()).min(1).max(5_000);
+const sourceSequences = z.array(z.coerce.number().int().positive())
+  .min(1)
+  .max(5_000)
+  .transform((values) => [...new Set(values)]);
+const optionalGeneratedArray = <T extends z.ZodTypeAny>(item: T, max: number) =>
+  z.preprocess(
+    (value) => value == null ? [] : value,
+    z.array(item).max(max),
+  );
 const generatedSummarySchema = z.object({
   summary: z.string().trim().min(1).max(20_000),
   summarySourceSequences: sourceSequences.or(z.array(z.never()).length(0)),
-  partyViews: z.array(z.object({
+  partyViews: optionalGeneratedArray(z.object({
     participantId: z.string().min(1),
     view: z.string().trim().min(1).max(20_000),
     sourceSequences,
-  }).strict()).max(1_000),
-  confirmedItems: z.array(z.object({
+  }), 1_000),
+  confirmedItems: optionalGeneratedArray(z.object({
     text: z.string().trim().min(1).max(10_000),
     sourceSequences,
-  }).strict()).max(1_000),
-  actionItems: z.array(z.object({
+  }), 1_000),
+  actionItems: optionalGeneratedArray(z.object({
     text: z.string().trim().min(1).max(10_000),
     assigneeParticipantId: z.string().min(1),
-    dueAt: z.string().datetime({ offset: true }).optional(),
+    dueAt: z.preprocess(
+      (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+      z.string().datetime({ offset: true }).optional(),
+    ),
     sourceSequences,
-  }).strict()).max(1_000),
-  openQuestions: z.array(z.object({
+  }), 1_000),
+  openQuestions: optionalGeneratedArray(z.object({
     text: z.string().trim().min(1).max(10_000),
     sourceSequences,
-  }).strict()).max(1_000),
-}).strict();
+  }), 1_000),
+});
 
 export type GeneratedMeetingSummary = z.infer<typeof generatedSummarySchema>;
 export const SUMMARY_PROMPT_VERSION = 'zh-ru-business-v2';
@@ -187,23 +198,29 @@ export class AliyunMeetingSummaryProvider implements MeetingSummaryProvider {
     if (!content) {
       throw new AppError(502, 'SUMMARY_PROVIDER_FAILED', 'AI 服务未返回会议纪要');
     }
+    let generated: GeneratedMeetingSummary;
     try {
-      const generated = generatedSummarySchema.parse(JSON.parse(stripCodeFence(content)));
-      assertGeneratedReferences(generated, input.participants, input.messages);
-      return {
-        draft: generated,
-        audit: {
-          provider: 'aliyun',
-          model: this.runtime.ALIYUN_SUMMARY_MODEL,
-          promptVersion: SUMMARY_PROMPT_VERSION,
-          providerRequestId: response.headers.get('x-request-id') ?? payload.request_id ?? payload.id,
-          inputTokens: payload.usage?.prompt_tokens ?? payload.usage?.input_tokens,
-          outputTokens: payload.usage?.completion_tokens ?? payload.usage?.output_tokens,
-        },
-      };
+      generated = generatedSummarySchema.parse(JSON.parse(stripCodeFence(content)));
     } catch {
       throw new AppError(502, 'SUMMARY_PROVIDER_INVALID_RESPONSE', 'AI 会议纪要格式校验失败');
     }
+    const safeGenerated = discardUnsupportedGeneratedItems(
+      generated,
+      input.participants,
+      input.messages,
+    );
+    assertGeneratedReferences(safeGenerated, input.participants, input.messages);
+    return {
+      draft: safeGenerated,
+      audit: {
+        provider: 'aliyun',
+        model: this.runtime.ALIYUN_SUMMARY_MODEL,
+        promptVersion: SUMMARY_PROMPT_VERSION,
+        providerRequestId: response.headers.get('x-request-id') ?? payload.request_id ?? payload.id,
+        inputTokens: payload.usage?.prompt_tokens ?? payload.usage?.input_tokens,
+        outputTokens: payload.usage?.completion_tokens ?? payload.usage?.output_tokens,
+      },
+    };
   }
 }
 
@@ -216,6 +233,38 @@ summary 应简洁概括会议目的、主要讨论和结果，并用 summarySour
 
 function stripCodeFence(value: string): string {
   return value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+/**
+ * Keep the useful, grounded part of a provider response when one optional
+ * section contains a bad citation. A silent participant is sometimes assigned
+ * an inferred "view" by the model using somebody else's sentence; rejecting
+ * that item is safer and more useful than rejecting the entire meeting minute.
+ */
+export function discardUnsupportedGeneratedItems(
+  generated: GeneratedMeetingSummary,
+  participants: SummaryParticipant[],
+  messages: SummaryTranscriptMessage[],
+): GeneratedMeetingSummary {
+  const participantIds = new Set(participants.map((participant) => participant.participantId));
+  const messageBySequence = new Map(messages.map((message) => [message.sequence, message]));
+  const referencesExist = (sequences: number[]) =>
+    sequences.length > 0 && sequences.every((sequence) => messageBySequence.has(sequence));
+  return {
+    ...generated,
+    partyViews: generated.partyViews.filter((view) =>
+      participantIds.has(view.participantId) &&
+      referencesExist(view.sourceSequences) &&
+      view.sourceSequences.every(
+        (sequence) => messageBySequence.get(sequence)?.participantId === view.participantId,
+      )),
+    confirmedItems: generated.confirmedItems.filter((item) =>
+      referencesExist(item.sourceSequences)),
+    actionItems: generated.actionItems.filter((item) =>
+      participantIds.has(item.assigneeParticipantId) && referencesExist(item.sourceSequences)),
+    openQuestions: generated.openQuestions.filter((item) =>
+      referencesExist(item.sourceSequences)),
+  };
 }
 
 export function assertGeneratedReferences(
