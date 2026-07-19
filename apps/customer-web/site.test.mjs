@@ -125,9 +125,31 @@ test('account page submits the complete registered-user profile to same-origin a
   assert.match(source, /'\/v1\/auth\/logout'/);
   assert.match(source, /'\/v1\/auth\/profile'/);
   assert.match(source, /'\/v1\/auth\/password\/change'/);
+  assert.match(source, /'\/v1\/auth\/email\/resend'/);
+  assert.match(source, /'\/v1\/auth\/email\/verify'/);
+  assert.match(source, /'\/v1\/auth\/password\/forgot'/);
+  assert.match(source, /'\/v1\/auth\/password\/reset\/email'/);
   assert.match(source, /SERVICE_PREPARING/);
   assert.match(source, /storageSet\(sessionStorage, storageKeys\.session/);
   assert.match(source, /storageSet\(localStorage, storageKeys\.device/);
+});
+
+test('registration activation and password recovery keep one-time tokens out of URLs sent to the server', async () => {
+  const [page, source] = await Promise.all([
+    readFile(new URL('account.html', directory), 'utf8'),
+    readFile(new URL('account.js', directory), 'utf8'),
+  ]);
+
+  for (const flow of ['verification-pending', 'forgot', 'verify', 'reset']) {
+    assert.match(page, new RegExp(`data-email-flow="${flow}"`));
+  }
+  assert.match(page, /id="resend-verification-form"/);
+  assert.match(page, /id="forgot-password-form"/);
+  assert.match(page, /id="reset-password-form"/);
+  assert.match(source, /requestedUrl\.hash/);
+  assert.match(source, /new URLSearchParams/);
+  assert.doesNotMatch(source, /searchParams\.get\(['"]token['"]\)/);
+  assert.doesNotMatch(source, /localStorage[^\n]*(?:actionToken|token)/);
 });
 
 test('account client keeps bearer credentials out of persistent storage and unsafe DOM sinks', async () => {

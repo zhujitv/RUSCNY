@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => {
     $queryRaw: vi.fn(),
     user: { update: vi.fn() },
     userDevice: { upsert: vi.fn() },
+    emailVerificationToken: { updateMany: vi.fn(), create: vi.fn() },
   };
   return {
     transaction,
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => {
         findUnique: vi.fn(),
         updateMany: vi.fn(),
       },
+      emailVerificationToken: { updateMany: vi.fn() },
       glossaryTerm: { createMany: vi.fn() },
       systemSetting: { findUnique: vi.fn() },
     },
@@ -56,8 +58,11 @@ beforeEach(() => {
   mocks.prisma.$transaction.mockImplementation(
     async (callback: (tx: typeof mocks.transaction) => unknown) => callback(mocks.transaction),
   );
-  mocks.transaction.$queryRaw.mockResolvedValue([{ status: 'ACTIVE' }]);
+  mocks.transaction.$queryRaw.mockResolvedValue([{ status: 'ACTIVE', emailVerifiedAt: new Date() }]);
   mocks.transaction.userDevice.upsert.mockResolvedValue({});
+  mocks.transaction.emailVerificationToken.updateMany.mockResolvedValue({ count: 0 });
+  mocks.transaction.emailVerificationToken.create.mockResolvedValue({ id: 'verification-a' });
+  mocks.prisma.emailVerificationToken.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.user.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.systemSetting.findUnique.mockResolvedValue(null);
 });
@@ -97,10 +102,18 @@ describe('password login hardening', () => {
       role: 'USER',
       displayName: 'Alice',
       email: 'alice@example.test',
+      emailVerifiedAt: null,
       company: 'ACME',
       preferredLanguage: 'zh',
     });
     mocks.prisma.glossaryTerm.createMany.mockResolvedValue({ count: 1 });
+    mocks.transaction.$queryRaw.mockResolvedValue([{
+      id: 'user-new',
+      status: 'ACTIVE',
+      email: 'alice@example.test',
+      displayName: 'Alice',
+      emailVerifiedAt: null,
+    }]);
     app = await createApp();
 
     const response = await app.inject({
@@ -121,10 +134,14 @@ describe('password login hardening', () => {
     expect(mocks.prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ role: 'USER' }),
     }));
-    expect(response.json().data.user).toMatchObject({
-      id: 'user-new',
-      role: 'USER',
+    expect(response.json().data).toMatchObject({
+      verificationRequired: true,
+      emailHint: 'al***@example.test',
     });
+    expect(mocks.transaction.userDevice.upsert).not.toHaveBeenCalled();
+    expect(mocks.transaction.emailVerificationToken.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ userId: 'user-new' }) }),
+    );
   });
 
   it('does not issue a session when account deletion wins after the initial password read', async () => {
@@ -135,12 +152,13 @@ describe('password login hardening', () => {
       role: 'USER',
       displayName: 'Alice',
       email: 'alice@example.test',
+      emailVerifiedAt: new Date(),
       company: 'ACME',
       preferredLanguage: 'zh',
       passwordHash: legacyHash,
       status: 'ACTIVE',
     });
-    mocks.transaction.$queryRaw.mockResolvedValue([{ status: 'DELETED' }]);
+    mocks.transaction.$queryRaw.mockResolvedValue([{ status: 'DELETED', emailVerifiedAt: new Date() }]);
     app = await createApp();
 
     const response = await app.inject({
@@ -168,6 +186,7 @@ describe('password login hardening', () => {
       role: 'USER',
       displayName: 'Alice',
       email: 'alice@example.test',
+      emailVerifiedAt: new Date(),
       company: 'ACME',
       preferredLanguage: 'zh',
       passwordHash: legacyHash,

@@ -816,6 +816,7 @@ describe('refresh token compare-and-swap', () => {
         status: 'ACTIVE',
         displayName: 'Host',
         email: 'host@example.com',
+        emailVerifiedAt: new Date(),
       },
     });
 
@@ -858,6 +859,7 @@ describe('refresh token compare-and-swap', () => {
         status: 'ACTIVE',
         displayName: 'Host',
         email: 'host@example.com',
+        emailVerifiedAt: new Date(),
       },
     };
 

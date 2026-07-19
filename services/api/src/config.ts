@@ -47,9 +47,8 @@ const schema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
   PASSWORD_PEPPER: z.string().min(16).default('development-password-pepper-change-me'),
-  // Bootstrap access is bound to immutable User ids, never to reusable and
-  // currently unverified email addresses. Database isSystemAdmin remains the
-  // preferred durable capability after bootstrap.
+  // Bootstrap access is bound to immutable User ids, never to reusable email
+  // addresses. Database isSystemAdmin remains the preferred durable capability.
   SYSTEM_ADMIN_USER_IDS: z.string().default(''),
   ADMIN_PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1_440).default(30),
   LEGAL_POLICY_VERSION: z.string().trim().min(1).max(100).default('2026-07-19-ai-summary'),
@@ -81,6 +80,8 @@ const schema = z.object({
   EMAIL_FROM: optionalString,
   EMAIL_REPLY_TO: optionalEmail,
   EMAIL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
+  EMAIL_VERIFICATION_TTL_MINUTES: z.coerce.number().int().min(10).max(10_080).default(1_440),
+  PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(10).max(1_440).default(30),
   PUBLIC_APP_URL: z.string().url().default('https://www.ruscny.net'),
   PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
   INVITE_TTL_MINUTES: z.coerce.number().int().positive().default(1_440),

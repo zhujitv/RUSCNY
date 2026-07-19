@@ -28,7 +28,9 @@ void main() {
     await tester.tap(find.text('没有账号，立即注册'));
     await tester.pumpAndSettle();
 
-    expect(find.text('注册并登录'), findsOneWidget);
+    expect(find.text('注册并发送激活邮件'), findsOneWidget);
+    expect(find.text('重新发送激活邮件'), findsOneWidget);
+    expect(find.text('忘记密码？'), findsOneWidget);
     expect(find.text('账号类型'), findsNothing);
     expect(find.text('主持人'), findsNothing);
     expect(find.text('客户'), findsNothing);

@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => {
   const transaction = {
     user: { updateMany: vi.fn() },
     userDevice: { findMany: vi.fn(), updateMany: vi.fn() },
+    userPasswordResetToken: { updateMany: vi.fn() },
+    adminPasswordResetToken: { updateMany: vi.fn() },
   };
   return {
     state,
@@ -81,6 +83,8 @@ beforeEach(() => {
     { deviceId: 'device-c' },
   ]);
   mocks.transaction.userDevice.updateMany.mockResolvedValue({ count: 2 });
+  mocks.transaction.userPasswordResetToken.updateMany.mockResolvedValue({ count: 1 });
+  mocks.transaction.adminPasswordResetToken.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.user.updateMany.mockResolvedValue({ count: 1 });
 });
 

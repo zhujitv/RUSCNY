@@ -25,6 +25,7 @@ final class _LoginPageState extends ConsumerState<LoginPage> {
   final _guestEmail = TextEditingController();
   final _roomCode = TextEditingController();
   bool _register = false;
+  bool _accountBusy = false;
   bool _guestConsent = false;
   Language _guestLanguage = Language.ru;
 
@@ -123,16 +124,29 @@ final class _LoginPageState extends ConsumerState<LoginPage> {
             onSubmitted: (_) => _submitAccount(),
             decoration: InputDecoration(labelText: '密码'.tr(context)),
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: null,
-              child: const AppText('忘记密码（即将提供）'),
-            ),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            children: [
+              TextButton(
+                onPressed: _accountBusy ? null : _resendVerification,
+                child: const AppText('重新发送激活邮件'),
+              ),
+              TextButton(
+                onPressed: _accountBusy ? null : _forgotPassword,
+                child: const AppText('忘记密码？'),
+              ),
+            ],
           ),
           FilledButton(
-            onPressed: _submitAccount,
-            child: AppText(_register ? '注册并登录' : '登录'),
+            onPressed: _accountBusy ? null : _submitAccount,
+            child: AppText(
+              _accountBusy
+                  ? '正在提交…'
+                  : _register
+                      ? '注册并发送激活邮件'
+                      : '登录',
+            ),
           ),
           TextButton(
             onPressed: () => setState(() => _register = !_register),
@@ -220,19 +234,74 @@ final class _LoginPageState extends ConsumerState<LoginPage> {
       _snack('请输入有效邮箱和至少 8 位密码');
       return;
     }
-    final controller = ref.read(authControllerProvider.notifier);
-    if (_register) {
-      if (_name.text.trim().isEmpty) {
-        _snack('请输入姓名');
-        return;
+    setState(() => _accountBusy = true);
+    try {
+      final controller = ref.read(authControllerProvider.notifier);
+      if (_register) {
+        if (_name.text.trim().isEmpty) {
+          _snack('请输入姓名');
+          return;
+        }
+        await controller.register(
+          displayName: _name.text,
+          email: _email.text,
+          password: _password.text,
+        );
+        if (!mounted) return;
+        _password.clear();
+        setState(() => _register = false);
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const AppText('请查收激活邮件'),
+            content: const AppText('激活邮件已发送。完成邮箱认证后即可登录。'),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const AppText('我知道了'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        await controller.login(email: _email.text, password: _password.text);
       }
-      await controller.register(
-        displayName: _name.text,
-        email: _email.text,
-        password: _password.text,
-      );
-    } else {
-      await controller.login(email: _email.text, password: _password.text);
+    } catch (error) {
+      _snack(readableError(error));
+    } finally {
+      if (mounted) setState(() => _accountBusy = false);
+    }
+  }
+
+  Future<void> _resendVerification() async {
+    if (!_email.text.contains('@')) {
+      _snack('请输入有效邮箱');
+      return;
+    }
+    setState(() => _accountBusy = true);
+    try {
+      await ref.read(authRepositoryProvider).resendVerification(_email.text);
+      _snack('如果账号尚未激活，新的激活邮件已经发送');
+    } catch (error) {
+      _snack(readableError(error));
+    } finally {
+      if (mounted) setState(() => _accountBusy = false);
+    }
+  }
+
+  Future<void> _forgotPassword() async {
+    if (!_email.text.contains('@')) {
+      _snack('请输入有效邮箱');
+      return;
+    }
+    setState(() => _accountBusy = true);
+    try {
+      await ref.read(authRepositoryProvider).forgotPassword(_email.text);
+      _snack('如果账号可用，密码重置邮件已经发送');
+    } catch (error) {
+      _snack(readableError(error));
+    } finally {
+      if (mounted) setState(() => _accountBusy = false);
     }
   }
 

@@ -88,6 +88,8 @@ Compose 从仓库根目录构建 `services/api/Dockerfile`，`migrate` one-shot 
 | `EMAIL_FROM` | 生产是 | 已验证域名的发件人，例如 `RUSCNY <minutes@send.ruscny.net>` |
 | `EMAIL_REPLY_TO` | 否 | 可选客服/主持方回复邮箱 |
 | `EMAIL_REQUEST_TIMEOUT_MS` | 是 | 单封请求超时，默认 15000，范围 1000–60000 |
+| `EMAIL_VERIFICATION_TTL_MINUTES` | 是 | 注册激活链接有效期，默认 1440 分钟 |
+| `PASSWORD_RESET_TTL_MINUTES` | 是 | 自助密码重置链接有效期，默认 30 分钟 |
 | `AUDIO_STORAGE_DRIVER=s3` | 生产是 | 生产配置为 local 会拒绝启动 |
 | `AUDIO_LOCAL_DIRECTORY` | 开发 local 时是 | 单机开发目录，不可作为多实例共享存储 |
 | `AUDIO_URL_SIGNING_SECRET` | 生产是 | 独立高熵 HMAC 密钥，至少 32 字符 |
@@ -144,7 +146,7 @@ docker build --file services/api/Dockerfile --target migration \
 
 仓库根脚本 `npm run db:migrate` 当前映射到 workspace 的 `prisma migrate deploy`，适合发布已提交的迁移；本地创建新迁移才使用 `prisma:migrate:dev`。生产禁止交互式 `migrate dev`。
 
-`202607180003_device_sessions` 和 `202607180005_auth_session_families` 建立服务端会话代际；`202607190001_auth_data_hardening` 增加软删除墓碑、近期认证时间和稳定 GuestPrincipal；`202607190002_audio_deletion_outbox` 建立持久音频删除任务；`202607190003_audio_asset_lookup` 为播放权限反查建立索引；`202607190004_admin_console` 增加独立系统管理权限、不可变管理审计和只存摘要的一次性密码重置凭证；`202607190005_message_corrections` 增加消息纠错状态、revision 和不可变纠错审计；`202607190006_summary_revision_and_language_backfill` 增加纪要来源边界/revision；`202607190007_summary_email_distribution` 增加纪要邮件分发；`202607190008_summary_message_update_boundary` 增加消息更新时间来源边界；`202607190009_unified_registered_user_role` 把正式账号统一为 `USER`；`202607190010_admin_operations_phase1` 增加管理员职责分级；`202607190011_admin_business_operations_phase2` 增加公共术语、安全业务配置和删除台账，并为历史已注销账号回填最小化完成记录。必须先完成全部迁移再发布新 API。
+`202607180003_device_sessions` 和 `202607180005_auth_session_families` 建立服务端会话代际；`202607190001_auth_data_hardening` 增加软删除墓碑、近期认证时间和稳定 GuestPrincipal；`202607190002_audio_deletion_outbox` 建立持久音频删除任务；`202607190003_audio_asset_lookup` 为播放权限反查建立索引；`202607190004_admin_console` 增加独立系统管理权限、不可变管理审计和只存摘要的一次性密码重置凭证；`202607190005_message_corrections` 增加消息纠错状态、revision 和不可变纠错审计；`202607190006_summary_revision_and_language_backfill` 增加纪要来源边界/revision；`202607190007_summary_email_distribution` 增加纪要邮件分发；`202607190008_summary_message_update_boundary` 增加消息更新时间来源边界；`202607190009_unified_registered_user_role` 把正式账号统一为 `USER`；`202607190010_admin_operations_phase1` 增加管理员职责分级；`202607190011_admin_business_operations_phase2` 增加公共术语、安全业务配置和删除台账；`202607190014_email_verification_password_reset` 为现有邮箱账号回填认证时间，并增加只存哈希的一次性激活和自助密码重置凭证。必须先完成全部迁移再发布新 API。
 
 上线前在 Resend 控制台验证独立发信子域（建议 `send.ruscny.net`）并添加平台生成的 SPF、DKIM 记录；不要猜测 DNS 值。使用真实收件箱验证中文、俄文、退信、限流和垃圾邮件表现。当前 API 记录的是供应商“已受理/失败”结果；若运营需要最终 delivered/bounced/complained 状态，应再配置签名 webhook 并完成重放和伪造事件测试。
 

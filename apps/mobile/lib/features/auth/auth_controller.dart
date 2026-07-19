@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/auth/auth_repository.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/utils/transcript_exporter.dart';
@@ -35,21 +36,16 @@ final class AuthController extends AsyncNotifier<AuthSession?> {
     return !state.hasError;
   }
 
-  Future<bool> register({
+  Future<RegistrationResult> register({
     required String displayName,
     required String email,
     required String password,
-  }) async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(
-      () => ref.read(authRepositoryProvider).register(
+  }) =>
+      ref.read(authRepositoryProvider).register(
             displayName: displayName,
             email: email,
             password: password,
-          ),
-    );
-    return !state.hasError;
-  }
+          );
 
   Future<bool> createGuest({
     required String displayName,

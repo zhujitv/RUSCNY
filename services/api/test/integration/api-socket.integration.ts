@@ -3,6 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { prisma } from '../../src/db.js';
 import { PROCESSING_LEASE_MS } from '../../src/services/message-processing.js';
+import {
+  emailVerificationTokenHash,
+  userPasswordResetTokenHash,
+} from '../../src/services/account-emails.js';
 
 interface Session {
   accessToken: string;
@@ -33,6 +37,68 @@ afterAll(async () => {
 });
 
 describe.sequential('PostgreSQL API isolation and concurrency', () => {
+  it('requires email activation and revokes every session after an emailed password reset', async () => {
+    const label = `email-flow-${++counter}`;
+    const email = `${label}@example.test`;
+    const device = deviceId(label);
+    const registration = await request('POST', '/v1/auth/register', undefined, {
+      displayName: 'Email Flow',
+      email,
+      password: 'integration-password-123',
+      deviceId: device,
+    });
+    expect(registration.statusCode).toBe(200);
+    expect(registration.json().data.verificationRequired).toBe(true);
+
+    const blocked = await request('POST', '/v1/auth/login', undefined, {
+      email,
+      password: 'integration-password-123',
+      deviceId: device,
+    });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().code).toBe('EMAIL_NOT_VERIFIED');
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const verificationToken = 'integration-email-verification-token-0001';
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: emailVerificationTokenHash(verificationToken),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    expect((await request('POST', '/v1/auth/email/verify', undefined, {
+      token: verificationToken,
+    })).statusCode).toBe(200);
+
+    const login = await request('POST', '/v1/auth/login', undefined, {
+      email,
+      password: 'integration-password-123',
+      deviceId: device,
+    });
+    expect(login.statusCode).toBe(200);
+    const session = login.json().data as Session;
+
+    const resetToken = 'integration-user-password-reset-token-0001';
+    await prisma.userPasswordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: userPasswordResetTokenHash(resetToken),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    expect((await request('POST', '/v1/auth/password/reset/email', undefined, {
+      token: resetToken,
+      newPassword: 'replacement-password-456',
+    })).statusCode).toBe(200);
+    expect((await request('GET', '/v1/auth/me', session.accessToken)).statusCode).toBe(401);
+    expect((await request('POST', '/v1/auth/login', undefined, {
+      email,
+      password: 'replacement-password-456',
+      deviceId: device,
+    })).statusCode).toBe(200);
+  });
+
   it('isolates user data and lets every registered user host meetings they create', async () => {
     const hostA = await register('host-a', 'zh');
     const hostB = await register('host-b', 'zh');
@@ -875,16 +941,29 @@ async function register(
   label: string,
   preferredLanguage: 'zh' | 'ru',
 ): Promise<Session> {
+  const email = `${label}-${++counter}@example.test`;
+  const password = 'integration-password-123';
   const response = await request('POST', '/v1/auth/register', undefined, {
     displayName: label,
-    email: `${label}-${++counter}@example.test`,
-    password: 'integration-password-123',
+    email,
+    password,
     company: `${label} LLC`,
     preferredLanguage,
     deviceId: deviceId(label),
   });
   expect(response.statusCode).toBe(200);
-  return response.json().data as Session;
+  expect(response.json().data.verificationRequired).toBe(true);
+  await prisma.user.update({
+    where: { email },
+    data: { emailVerifiedAt: new Date() },
+  });
+  const login = await request('POST', '/v1/auth/login', undefined, {
+    email,
+    password,
+    deviceId: deviceId(label),
+  });
+  expect(login.statusCode).toBe(200);
+  return login.json().data as Session;
 }
 
 function deviceId(label: string): string {

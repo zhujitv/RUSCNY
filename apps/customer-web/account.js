@@ -8,6 +8,7 @@
   const allowedAvatars = new Set(['jade', 'ocean', 'amber', 'plum', 'graphite', 'rose']);
   const authForm = document.querySelector('#account-form');
   const authPanel = document.querySelector('#auth-panel');
+  const emailFlowPanel = document.querySelector('#email-flow-panel');
   const sessionPanel = document.querySelector('#session-panel');
   const statusBox = document.querySelector('.form-status');
   const settingsStatus = document.querySelector('.settings-status');
@@ -18,24 +19,30 @@
   const profileForm = document.querySelector('#profile-form');
   const preferencesForm = document.querySelector('#preferences-form');
   const changePasswordForm = document.querySelector('#password-form');
+  const resendVerificationForm = document.querySelector('#resend-verification-form');
+  const forgotPasswordForm = document.querySelector('#forgot-password-form');
+  const resetPasswordForm = document.querySelector('#reset-password-form');
+  const emailFlowStatus = document.querySelector('.email-flow-status');
   let mode = 'register';
   let session = readSession();
   let refreshInFlight = null;
+  let pendingEmail = '';
+  let actionToken = '';
 
   const messages = {
     zh: {
-      loading: '正在提交…', restoring: '正在恢复当前网页账号…', registered: '注册成功，账号已建立。', loggedIn: '登录成功。',
+      loading: '正在提交…', restoring: '正在恢复当前网页账号…', registered: '注册资料已保存，激活邮件已经发送。', loggedIn: '登录成功。',
       requiredName: '请输入姓名或显示名称。', invalidEmail: '请输入有效邮箱。', invalidPassword: '密码必须为 8 至 128 位。', mismatch: '两次输入的密码不一致。', consent: '请先阅读并同意用户协议和隐私政策。',
-      EMAIL_EXISTS: '该邮箱已注册，请直接登录。', INVALID_CREDENTIALS: '邮箱或密码错误。', INVALID_CURRENT_PASSWORD: '当前密码错误。', PASSWORD_UNCHANGED: '新密码不能与当前密码相同。', ACCOUNT_CHANGED: '账号状态已变化，请重新登录后再试。', DUPLICATE_RESOURCE: '该手机号已被其他账号使用。', RATE_LIMITED: '操作过于频繁，请稍后再试。', VALIDATION_ERROR: '填写内容不符合要求，请检查后重试。', ACCOUNT_DISABLED: '账号不存在或已停用。', DEVICE_REVOKED: '当前设备已下线，请重新登录。',
+      EMAIL_EXISTS: '该邮箱已注册，请直接登录。', EMAIL_NOT_VERIFIED: '该账号尚未激活，请先查收激活邮件。', EMAIL_VERIFICATION_REQUIRED: '该邮箱尚未激活，可以重新发送激活邮件。', EMAIL_DELIVERY_FAILED: '账号已创建，但邮件暂未送出，请稍后重新发送。', VERIFICATION_TOKEN_INVALID: '激活链接无效或已过期，请重新发送激活邮件。', RESET_TOKEN_INVALID: '密码重置链接无效或已过期，请重新申请。', INVALID_CREDENTIALS: '邮箱或密码错误。', INVALID_CURRENT_PASSWORD: '当前密码错误。', PASSWORD_UNCHANGED: '新密码不能与当前密码相同。', ACCOUNT_CHANGED: '账号状态已变化，请重新登录后再试。', DUPLICATE_RESOURCE: '该手机号已被其他账号使用。', RATE_LIMITED: '操作过于频繁，请稍后再试。', VALIDATION_ERROR: '填写内容不符合要求，请检查后重试。', ACCOUNT_DISABLED: '账号不存在或已停用。', DEVICE_REVOKED: '当前设备已下线，请重新登录。',
       SERVICE_PREPARING: '账号服务正在准备中，当前不会创建账号。正式开放后即可注册或登录。', network: '无法连接服务器，请检查网络后重试。', generic: '暂时无法完成操作，请稍后重试。', notSet: '未填写', chinese: '🇨🇳 中文', russian: '🇷🇺 Русский', loggingOut: '正在退出…',
-      saving: '正在保存…', profileSaved: '个人资料已保存。', preferencesSaved: '个人偏好已保存并同步到账号。', passwordChanged: '密码已修改，其他登录设备已下线。', passwordMismatch: '两次输入的新密码不一致。', passwordSame: '新密码不能与当前密码相同。'
+      saving: '正在保存…', profileSaved: '个人资料已保存。', preferencesSaved: '个人偏好已保存并同步到账号。', passwordChanged: '密码已修改，其他登录设备已下线。', passwordMismatch: '两次输入的新密码不一致。', passwordSame: '新密码不能与当前密码相同。', verificationSent: '如果该邮箱对应尚未激活的账号，新的激活邮件已经发送。', verificationSuccess: '邮箱认证成功，现在可以登录。', verifying: '正在安全验证激活链接…', resetEmailSent: '如果该邮箱对应可用账号，密码重置邮件已经发送。', passwordResetSuccess: '密码已重置，请使用新密码重新登录。', invalidActionLink: '邮件链接缺少有效凭证，请重新申请。'
     },
     ru: {
-      loading: 'Отправка…', restoring: 'Восстанавливаем вход…', registered: 'Регистрация завершена. Аккаунт создан.', loggedIn: 'Вход выполнен.',
+      loading: 'Отправка…', restoring: 'Восстанавливаем вход…', registered: 'Данные сохранены. Письмо для активации отправлено.', loggedIn: 'Вход выполнен.',
       requiredName: 'Укажите имя или отображаемое имя.', invalidEmail: 'Введите корректный email.', invalidPassword: 'Пароль должен содержать от 8 до 128 символов.', mismatch: 'Пароли не совпадают.', consent: 'Сначала примите условия использования и политику конфиденциальности.',
-      EMAIL_EXISTS: 'Этот email уже зарегистрирован. Выполните вход.', INVALID_CREDENTIALS: 'Неверный email или пароль.', INVALID_CURRENT_PASSWORD: 'Неверный текущий пароль.', PASSWORD_UNCHANGED: 'Новый пароль должен отличаться от текущего.', ACCOUNT_CHANGED: 'Состояние аккаунта изменилось. Войдите снова.', DUPLICATE_RESOURCE: 'Этот номер телефона уже используется другим аккаунтом.', RATE_LIMITED: 'Слишком много попыток. Повторите позже.', VALIDATION_ERROR: 'Проверьте заполненные данные и повторите попытку.', ACCOUNT_DISABLED: 'Аккаунт не найден или отключён.', DEVICE_REVOKED: 'Это устройство отключено. Войдите снова.',
+      EMAIL_EXISTS: 'Этот email уже зарегистрирован. Выполните вход.', EMAIL_NOT_VERIFIED: 'Аккаунт ещё не активирован. Проверьте почту.', EMAIL_VERIFICATION_REQUIRED: 'Email ещё не подтверждён. Можно отправить письмо повторно.', EMAIL_DELIVERY_FAILED: 'Аккаунт создан, но письмо пока не отправлено. Повторите позже.', VERIFICATION_TOKEN_INVALID: 'Ссылка активации недействительна или истекла.', RESET_TOKEN_INVALID: 'Ссылка сброса пароля недействительна или истекла.', INVALID_CREDENTIALS: 'Неверный email или пароль.', INVALID_CURRENT_PASSWORD: 'Неверный текущий пароль.', PASSWORD_UNCHANGED: 'Новый пароль должен отличаться от текущего.', ACCOUNT_CHANGED: 'Состояние аккаунта изменилось. Войдите снова.', DUPLICATE_RESOURCE: 'Этот номер телефона уже используется другим аккаунтом.', RATE_LIMITED: 'Слишком много попыток. Повторите позже.', VALIDATION_ERROR: 'Проверьте заполненные данные и повторите попытку.', ACCOUNT_DISABLED: 'Аккаунт не найден или отключён.', DEVICE_REVOKED: 'Это устройство отключено. Войдите снова.',
       SERVICE_PREPARING: 'Сервис аккаунтов пока готовится. Сейчас аккаунт не будет создан. Регистрация и вход откроются после запуска.', network: 'Не удалось подключиться к серверу. Проверьте сеть.', generic: 'Не удалось выполнить операцию. Повторите позже.', notSet: 'Не указано', chinese: '🇨🇳 中文', russian: '🇷🇺 Русский', loggingOut: 'Выход…',
-      saving: 'Сохранение…', profileSaved: 'Профиль сохранён.', preferencesSaved: 'Предпочтения сохранены и синхронизированы с аккаунтом.', passwordChanged: 'Пароль изменён. Другие устройства отключены.', passwordMismatch: 'Новые пароли не совпадают.', passwordSame: 'Новый пароль должен отличаться от текущего.'
+      saving: 'Сохранение…', profileSaved: 'Профиль сохранён.', preferencesSaved: 'Предпочтения сохранены и синхронизированы с аккаунтом.', passwordChanged: 'Пароль изменён. Другие устройства отключены.', passwordMismatch: 'Новые пароли не совпадают.', passwordSame: 'Новый пароль должен отличаться от текущего.', verificationSent: 'Если аккаунт ожидает активации, новое письмо уже отправлено.', verificationSuccess: 'Email подтверждён. Теперь можно войти.', verifying: 'Безопасно проверяем ссылку активации…', resetEmailSent: 'Если аккаунт доступен, письмо для сброса пароля уже отправлено.', passwordResetSuccess: 'Пароль изменён. Войдите с новым паролем.', invalidActionLink: 'В ссылке нет действующего токена. Запросите новое письмо.'
     }
   };
 
@@ -97,6 +104,12 @@
     settingsStatus.textContent = message;
     settingsStatus.classList.toggle('error', error);
     settingsStatus.hidden = !message;
+  }
+
+  function showEmailFlowStatus(message, error = false) {
+    emailFlowStatus.textContent = message;
+    emailFlowStatus.classList.toggle('error', error);
+    emailFlowStatus.hidden = !message;
   }
 
   function setBusy(busy, message = '') {
@@ -169,8 +182,10 @@
     }
   }
 
-  function setMode(nextMode) {
+  function setMode(nextMode, updateUrl = true) {
     mode = nextMode === 'login' ? 'login' : 'register';
+    authPanel.hidden = false;
+    emailFlowPanel.hidden = true;
     document.querySelectorAll('[data-mode-section]').forEach((element) => {
       element.hidden = element.dataset.modeSection !== mode;
     });
@@ -184,9 +199,29 @@
     document.querySelector('#account-consent').required = mode === 'register';
     passwordInput.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
     showStatus('');
+    if (updateUrl) {
+      const url = new URL(globalThis.location.href);
+      url.searchParams.set('mode', mode);
+      globalThis.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+    }
+  }
+
+  function showEmailFlow(flow, message = '', error = false) {
+    const selected = ['verification-pending', 'forgot', 'verify', 'reset'].includes(flow) ? flow : 'forgot';
+    authPanel.hidden = true;
+    sessionPanel.hidden = true;
+    emailFlowPanel.hidden = false;
+    document.querySelectorAll('[data-email-flow]').forEach((panel) => {
+      panel.hidden = panel.dataset.emailFlow !== selected;
+    });
+    if (pendingEmail) {
+      const field = emailFlowPanel.querySelector(`[data-email-flow="${selected}"] [name="email"]`);
+      if (field) field.value = pendingEmail;
+    }
+    showEmailFlowStatus(message, error);
     const url = new URL(globalThis.location.href);
-    url.searchParams.set('mode', mode);
-    globalThis.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
+    url.searchParams.set('mode', selected === 'verification-pending' ? 'pending' : selected);
+    globalThis.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
   }
 
   function formValue(form, name, trim = true) {
@@ -283,14 +318,114 @@
     };
     try {
       const data = await apiRequest(registration ? '/v1/auth/register' : '/v1/auth/login', { method: 'POST', body });
-      storeSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, deviceId: body.deviceId, user: data.user });
-      authForm.reset();
-      renderProfile(data.user);
-      showSettingsStatus(registration ? currentMessages().registered : currentMessages().loggedIn);
+      if (registration) {
+        pendingEmail = body.email;
+        authForm.reset();
+        showEmailFlow('verification-pending', currentMessages().registered);
+      } else {
+        storeSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, deviceId: body.deviceId, user: data.user });
+        authForm.reset();
+        renderProfile(data.user);
+        showSettingsStatus(currentMessages().loggedIn);
+      }
     } catch (error) {
-      showStatus(error.message || currentMessages().generic, true);
+      if (['EMAIL_NOT_VERIFIED', 'EMAIL_VERIFICATION_REQUIRED', 'EMAIL_DELIVERY_FAILED'].includes(error.code)) {
+        pendingEmail = body.email;
+        showEmailFlow('verification-pending', error.message || currentMessages().generic, error.code === 'EMAIL_DELIVERY_FAILED');
+      } else {
+        showStatus(error.message || currentMessages().generic, true);
+      }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resendVerification(event) {
+    event.preventDefault();
+    const email = formValue(resendVerificationForm, 'email').toLowerCase();
+    if (!email || !resendVerificationForm.elements.email.validity.valid) {
+      showEmailFlowStatus(currentMessages().invalidEmail, true);
+      return;
+    }
+    setFormBusy(resendVerificationForm, true);
+    showEmailFlowStatus(currentMessages().loading);
+    try {
+      await apiRequest('/v1/auth/email/resend', { method: 'POST', body: { email } });
+      pendingEmail = email;
+      showEmailFlowStatus(currentMessages().verificationSent);
+    } catch (error) {
+      showEmailFlowStatus(error.message || currentMessages().generic, true);
+    } finally {
+      setFormBusy(resendVerificationForm, false);
+    }
+  }
+
+  async function requestPasswordReset(event) {
+    event.preventDefault();
+    const email = formValue(forgotPasswordForm, 'email').toLowerCase();
+    if (!email || !forgotPasswordForm.elements.email.validity.valid) {
+      showEmailFlowStatus(currentMessages().invalidEmail, true);
+      return;
+    }
+    setFormBusy(forgotPasswordForm, true);
+    showEmailFlowStatus(currentMessages().loading);
+    try {
+      await apiRequest('/v1/auth/password/forgot', { method: 'POST', body: { email } });
+      pendingEmail = email;
+      showEmailFlowStatus(currentMessages().resetEmailSent);
+    } catch (error) {
+      showEmailFlowStatus(error.message || currentMessages().generic, true);
+    } finally {
+      setFormBusy(forgotPasswordForm, false);
+    }
+  }
+
+  async function verifyEmail() {
+    showEmailFlow('verify', currentMessages().verifying);
+    if (!actionToken) {
+      showEmailFlowStatus(currentMessages().invalidActionLink, true);
+      return;
+    }
+    try {
+      await apiRequest('/v1/auth/email/verify', { method: 'POST', body: { token: actionToken } });
+      actionToken = '';
+      showEmailFlowStatus(currentMessages().verificationSuccess);
+    } catch (error) {
+      showEmailFlowStatus(error.message || currentMessages().generic, true);
+    }
+  }
+
+  async function resetPasswordByEmail(event) {
+    event.preventDefault();
+    const newPassword = formValue(resetPasswordForm, 'newPassword', false);
+    const confirmation = formValue(resetPasswordForm, 'confirmNewPassword', false);
+    if (!actionToken) {
+      showEmailFlowStatus(currentMessages().invalidActionLink, true);
+      return;
+    }
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      showEmailFlowStatus(currentMessages().invalidPassword, true);
+      return;
+    }
+    if (newPassword !== confirmation) {
+      showEmailFlowStatus(currentMessages().passwordMismatch, true);
+      return;
+    }
+    setFormBusy(resetPasswordForm, true);
+    showEmailFlowStatus(currentMessages().saving);
+    try {
+      await apiRequest('/v1/auth/password/reset/email', {
+        method: 'POST',
+        body: { token: actionToken, newPassword },
+      });
+      actionToken = '';
+      resetPasswordForm.reset();
+      resetPasswordForm.hidden = true;
+      showEmailFlowStatus(currentMessages().passwordResetSuccess);
+    } catch (error) {
+      showEmailFlowStatus(error.message || currentMessages().generic, true);
+    } finally {
+      setFormBusy(resetPasswordForm, false);
     }
   }
 
@@ -428,6 +563,7 @@
 
   document.querySelectorAll('[data-auth-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.authMode)));
   document.querySelectorAll('[data-switch-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.switchMode)));
+  document.querySelectorAll('[data-email-flow-open]').forEach((button) => button.addEventListener('click', () => showEmailFlow(button.dataset.emailFlowOpen)));
   document.querySelectorAll('[data-settings-tab]').forEach((button) => button.addEventListener('click', () => setSettingsTab(button.dataset.settingsTab)));
   document.querySelectorAll('[name="avatarPreset"]').forEach((input) => input.addEventListener('change', () => {
     const avatar = document.querySelector('[data-avatar-preview]');
@@ -438,13 +574,29 @@
     if (!sessionPanel.hidden && session?.user) renderProfile(session.user, { populate: false });
   }));
   authForm.addEventListener('submit', handleSubmit);
+  resendVerificationForm.addEventListener('submit', resendVerification);
+  forgotPasswordForm.addEventListener('submit', requestPasswordReset);
+  resetPasswordForm.addEventListener('submit', resetPasswordByEmail);
   profileForm.addEventListener('submit', saveProfile);
   preferencesForm.addEventListener('submit', savePreferences);
   changePasswordForm.addEventListener('submit', changePassword);
   logoutButton.addEventListener('click', logout);
 
-  const requestedMode = new URL(globalThis.location.href).searchParams.get('mode');
-  setMode(globalThis.location.pathname === '/login' || requestedMode === 'login' ? 'login' : 'register');
+  const requestedUrl = new URL(globalThis.location.href);
+  const requestedMode = requestedUrl.searchParams.get('mode');
+  const fragment = new URLSearchParams(requestedUrl.hash.replace(/^#/, ''));
+  actionToken = fragment.get('token') || '';
+  if (requestedMode === 'verify' || requestedMode === 'reset') {
+    globalThis.history.replaceState(null, '', `${requestedUrl.pathname}?mode=${requestedMode}`);
+    if (requestedMode === 'verify') void verifyEmail();
+    else showEmailFlow('reset', actionToken ? '' : currentMessages().invalidActionLink, !actionToken);
+  } else if (requestedMode === 'forgot') {
+    showEmailFlow('forgot');
+  } else if (requestedMode === 'pending') {
+    showEmailFlow('verification-pending');
+  } else {
+    setMode(globalThis.location.pathname === '/login' || requestedMode === 'login' ? 'login' : 'register');
+    restore();
+  }
   setSettingsTab('profile');
-  restore();
 })();

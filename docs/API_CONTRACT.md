@@ -83,7 +83,7 @@ GET /health/ready  检查 PostgreSQL、实时 Redis 状态，并返回当前 pro
 
 生产启动必须连通 Redis；运行期 publisher 或 subscriber 失联时，ready 返回 `503 REALTIME_NOT_READY`，部署平台不得继续把该实例视为可接流量。
 
-同源网页也不使用 `/v1` 前缀：`GET /` 返回客户官网；`GET /account` 返回中俄双语注册/登录页，`GET /register` 与 `GET /login` 为直接入口；`GET /privacy` 和 `GET /terms` 返回中俄双语法律候选页面；`GET /join` 为浏览器参会；`GET /admin` 为服务器管理后台。账号页提交仍使用正式 `POST /v1/auth/register`、`POST /v1/auth/login`、`POST /v1/auth/refresh` 和 `POST /v1/auth/logout` 合同。原 API 服务元信息位于 `GET /v1`。
+同源网页也不使用 `/v1` 前缀：`GET /` 返回客户官网；`GET /account` 返回中俄双语注册/登录、邮箱激活和密码找回页，`GET /register` 与 `GET /login` 为直接入口；`GET /privacy` 和 `GET /terms` 返回中俄双语法律候选页面；`GET /join` 为浏览器参会；`GET /admin` 为服务器管理后台。账号页提交仍使用正式 `/v1/auth/*` 合同。原 API 服务元信息位于 `GET /v1`。
 
 ## 4. 核心数据对象
 
@@ -201,22 +201,25 @@ GET /health/ready  检查 PostgreSQL、实时 Redis 状态，并返回当前 pro
 }
 ```
 
-注册请求不接受账号类型选择；即使旧客户端继续提交 `role`，服务端也会忽略它并创建统一 `USER` 账号。成功 data：
+注册请求不接受账号类型选择；即使旧客户端继续提交 `role`，服务端也会忽略它并创建统一 `USER` 账号。新账号不会立即得到 Access/Refresh Token。成功 data：
 
 ```json
 {
-  "accessToken": "...",
-  "refreshToken": "...",
-  "user": {
-    "id": "user_123",
-    "role": "USER",
-    "displayName": "王经理",
-    "email": "host@example.com"
-  }
+  "verificationRequired": true,
+  "emailHint": "ho***@example.com"
 }
 ```
 
-错误：`EMAIL_EXISTS`、`VALIDATION_ERROR`。
+服务端向注册邮箱发送一次性激活链接。原始凭证只进入邮件，数据库仅保存加 Pepper 的哈希；链接放在 URL fragment 中，不进入访问日志或 Referer。激活前登录返回 `403 EMAIL_NOT_VERIFIED`。错误还包括 `EMAIL_EXISTS`、`EMAIL_VERIFICATION_REQUIRED`、`EMAIL_DELIVERY_FAILED`、`VALIDATION_ERROR`。
+
+### 邮箱激活
+
+```text
+POST /auth/email/resend
+POST /auth/email/verify
+```
+
+重新发送 body 为 `{ "email": "host@example.com" }`，无论邮箱是否存在、是否已激活都返回同一受理结果，避免账号枚举。验证 body 为 `{ "token": "..." }`；凭证仅可使用一次且有过期时间，成功后写入 `emailVerifiedAt` 并使该账号的其他未使用激活链接失效。多个重新发送请求不会主动废弃用户尚未点击的有效邮件，避免第三方通过反复请求造成激活拒绝服务。
 
 ### `POST /auth/login`
 
@@ -228,7 +231,7 @@ GET /health/ready  检查 PostgreSQL、实时 Redis 状态，并返回当前 pro
 }
 ```
 
-成功与注册相同。账号不存在、密码错误或不能登录统一返回 `401 INVALID_CREDENTIALS`，不枚举邮箱。
+成功返回 Access/Refresh Token 和 User。账号不存在、密码错误或不能登录统一返回 `401 INVALID_CREDENTIALS`，不枚举邮箱；密码正确但邮箱尚未认证返回 `403 EMAIL_NOT_VERIFIED`，客户端应提供重新发送入口。
 
 ### `POST /auth/guest`
 
@@ -371,7 +374,7 @@ Guest Access Token 与正式账号使用同一短有效期（默认 15 分钟）
 
 ### `DELETE /auth/account`
 
-需要 Bearer Token，不接受客户端传入的 `userId`。注册用户在最近 10 分钟内完成密码登录/注册时可提交空 body；超过窗口返回 `401 RECENT_AUTH_REQUIRED`，重试时提交 `{ "password": "..." }`。Guest 使用当前会议范围内的有效 Bearer 删除该临时身份。成功返回：
+需要 Bearer Token，不接受客户端传入的 `userId`。注册用户在最近 10 分钟内完成密码登录时可提交空 body；超过窗口返回 `401 RECENT_AUTH_REQUIRED`，重试时提交 `{ "password": "..." }`。Guest 使用当前会议范围内的有效 Bearer 删除该临时身份。成功返回：
 
 ```json
 {
@@ -388,9 +391,18 @@ Guest Access Token 与正式账号使用同一短有效期（默认 15 分钟）
 { "email": "user@example.com" }
 ```
 
-无论邮箱是否存在都返回统一受理结果，避免账号枚举。发送验证码/邮件、过期、频率限制和密码重置完成接口必须在正式启用前补齐；未配置邮件服务时应明确返回功能未启用，不能假成功让用户等待。
+无论邮箱是否存在都返回统一受理结果，避免账号枚举。只有状态正常且邮箱已认证的账号会收到一次性重置链接；邮件失败写服务端受控日志，但公开响应保持一致。
 
-自助“忘记密码”邮件发送路径当前稳定返回 `501 PASSWORD_RESET_NOT_CONFIGURED`，不会伪称邮件已发送。服务器管理员可通过独立的一次性凭证流程完成人工重置；自助发送链仍需正式邮件服务后才能开放。
+### `POST /auth/password/reset/email`
+
+```json
+{
+  "token": "one-time-token-from-email",
+  "newPassword": "minimum-8-characters"
+}
+```
+
+原始 token 只从邮件 URL fragment 进入网页内存，不写浏览器持久存储、查询参数或服务端日志。成功后 token 及该账号其他自助/管理员重置凭证全部失效，所有设备会话立即撤销；客户端必须重新登录。无效、过期或已使用返回 `401 RESET_TOKEN_INVALID`。
 
 ## 6. 客户管理（注册用户）
 
@@ -765,6 +777,8 @@ POST  /v1/auth/password/reset
 | `INVALID_LANGUAGE_PAIR` | 400 | 非 zh⇄ru 或方向相同 |
 | `UNAUTHORIZED` | 401 | 未登录或 Access Token 无效 |
 | `INVALID_CREDENTIALS` | 401 | 登录凭据无效 |
+| `VERIFICATION_TOKEN_INVALID` | 401 | 邮箱激活凭证无效、过期或已使用 |
+| `RESET_TOKEN_INVALID` | 401 | 密码重置凭证无效、过期或已使用 |
 | `REFRESH_DEVICE_MISMATCH` | 401 | Refresh 与设备不匹配 |
 | `REFRESH_TOKEN_INVALID` | 401 | Refresh 签名/声明无效、缺少当前会话族声明，或来自已经被新登录替换的旧会话族；不撤销当前族 |
 | `REFRESH_TOKEN_REUSED` | 401 | 同一会话族的 Refresh 已轮换/重放；撤销该族，不误伤更新登录建立的新族 |
@@ -772,6 +786,7 @@ POST  /v1/auth/password/reset
 | `DEVICE_REVOKED` | 401 | 设备会话不存在或已远程撤销 |
 | `ACCOUNT_DISABLED` | 401/403 | 账号停用 |
 | `FORMAL_ACCOUNT_REQUIRED` | 403 | Guest 尝试正式账号专属操作 |
+| `EMAIL_NOT_VERIFIED` | 403 | 密码正确但注册邮箱尚未认证，不能签发会话 |
 | `FORBIDDEN` | 403 | 操作不允许 |
 | `PARTICIPANT_REMOVED` | 403 | 该注册参会者或临时 Guest 已被会议主持人移出，不能重新加入或读写会议 |
 | `PARTICIPANT_LEFT` | 403 | 参会者已主动退出，历史可按策略读取但不能继续写入 |
@@ -784,6 +799,8 @@ POST  /v1/auth/password/reset
 | `ROOM_NOT_FOUND` | 404 | 邀请/房间码无匹配 |
 | `SUMMARY_NOT_FOUND` | 404 | 本会议尚未生成会议纪要 |
 | `EMAIL_EXISTS` | 409 | 邮箱已注册 |
+| `EMAIL_VERIFICATION_REQUIRED` | 409 | 邮箱已注册但尚未激活，应使用重新发送入口 |
+| `EMAIL_DELIVERY_FAILED` | 503 | 注册已保存但本次激活邮件未被邮件服务受理 |
 | `ROOM_ENDED` | 409 | 已结束会议不能轮换邀请或恢复写入 |
 | `SUMMARY_REQUIRES_ENDED_CONVERSATION` | 409 | 只有已结束会议可以生成最终会议纪要 |
 | `SUMMARY_SOURCE_CHANGED` | 409 | AI 整理期间消息或参会者资料发生变化，结果未保存，需重新生成 |
@@ -826,8 +843,7 @@ POST  /v1/auth/password/reset
 | `PROVIDER_TIMEOUT` | 504 | 上游超时 |
 | `PROVIDER_CONFIGURATION_ERROR` | 503 | 生产供应商配置无效 |
 | `REALTIME_NOT_READY` | 503 | Redis 实时 publisher/subscriber 未就绪 |
-| `PASSWORD_RESET_NOT_CONFIGURED` | 501 | 密码找回发送/重置服务尚未配置 |
-| `RESET_TOKEN_INVALID` | 401 | 管理员签发的一次性重置凭证无效、已消费或已过期 |
+| `RESET_TOKEN_INVALID` | 401 | 自助邮件或管理员签发的一次性重置凭证无效、已消费或已过期 |
 | `SYSTEM_ADMIN_REQUIRED` | 403 | 当前正式账号不具有服务器管理权限 |
 | `SYSTEM_ADMIN_PROTECTED` | 403 | 持久系统管理员不能在界面直接停用 |
 | `PARTICIPANT_PROFILE_REQUIRED` | 400/409 | 加入或接受邀请前未确认姓名、公司和语言 |

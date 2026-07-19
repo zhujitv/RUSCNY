@@ -7,7 +7,7 @@
 - 管理员先通过现有的 `/v1/auth/login` 使用正式账号登录。
 - 正式账号只有统一的 `USER` 类型；会议主持人是创建者在单次会议中的角色，不是账号类型，也不代表服务器管理权限。
 - 每一个 `/v1/admin/*` 请求都会先校验 Access Token 与设备 `sessionId`，然后重新从 PostgreSQL 读取不可变 User ID、账号状态和 `isSystemAdmin`。不信任 Token 中的会议角色、邮箱或浏览器传入值。
-- 只有 `ACTIVE` 账号且 `isSystemAdmin=true`，或不可复用的 User ID 明确列入 `SYSTEM_ADMIN_USER_IDS`，才能进入。Guest 永远不能进入。邮箱不是管理权限依据，因为当前注册流程尚未验证邮箱且注销后邮箱可以重新注册。
+- 只有已完成邮箱认证的 `ACTIVE` 账号且 `isSystemAdmin=true`，或不可复用的 User ID 明确列入 `SYSTEM_ADMIN_USER_IDS`，才能进入。Guest 永远不能进入。即使邮箱已经认证，邮箱仍可能在账号注销后重新注册，因此不能作为管理权限依据。
 - 管理端的 Access/Refresh Token 只放在当前标签页 `sessionStorage`，不写入 URL 或长期本地存储。
 
 ## 2. 初始管理员

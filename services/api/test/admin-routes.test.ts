@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
       updateMany: vi.fn(),
       create: vi.fn(),
     },
+    userPasswordResetToken: { updateMany: vi.fn() },
     conversation: { updateMany: vi.fn(), findUnique: vi.fn() },
     translationMessage: { updateMany: vi.fn() },
     guestIdentity: { updateMany: vi.fn() },
@@ -72,6 +73,7 @@ beforeEach(async () => {
   }]);
   mocks.transaction.adminPasswordResetToken.updateMany.mockResolvedValue({ count: 1 });
   mocks.transaction.adminPasswordResetToken.create.mockResolvedValue({ id: 'reset-a' });
+  mocks.transaction.userPasswordResetToken.updateMany.mockResolvedValue({ count: 1 });
   mocks.transaction.userDevice.updateMany.mockResolvedValue({ count: 2 });
   mocks.transaction.translationMessage.updateMany.mockResolvedValue({ count: 0 });
   mocks.transaction.guestIdentity.updateMany.mockResolvedValue({ count: 0 });

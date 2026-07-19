@@ -133,6 +133,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           where: { userId: credential.userId, usedAt: null },
           data: { usedAt: now },
         });
+        await tx.userPasswordResetToken.updateMany({
+          where: { userId: credential.userId, usedAt: null },
+          data: { usedAt: now },
+        });
         await tx.adminAuditLog.create({
           data: {
             actorUserId: credential.createdById,

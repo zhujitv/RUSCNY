@@ -41,18 +41,40 @@ final class AuthRepository {
         'platform': _devicePlatform,
       });
 
-  Future<AuthSession> register({
+  Future<RegistrationResult> register({
     required String displayName,
     required String email,
     required String password,
-  }) =>
-      _authenticate('/auth/register', {
-        'displayName': displayName.trim(),
-        'email': email.trim(),
-        'password': password,
-        'deviceId': _tokens.deviceId(),
-        'platform': _devicePlatform,
-      });
+  }) async {
+    final payload = await _api.postMap('/auth/register', data: {
+      'displayName': displayName.trim(),
+      'email': email.trim().toLowerCase(),
+      'password': password,
+      'deviceId': await _tokens.deviceId(),
+      'platform': _devicePlatform,
+    });
+    if (payload['verificationRequired'] != true) {
+      throw const FormatException('Missing email verification requirement');
+    }
+    return RegistrationResult(
+      verificationRequired: true,
+      emailHint: payload['emailHint']?.toString(),
+    );
+  }
+
+  Future<void> resendVerification(String email) async {
+    await _api.postMap(
+      '/auth/email/resend',
+      data: {'email': email.trim().toLowerCase()},
+    );
+  }
+
+  Future<void> forgotPassword(String email) async {
+    await _api.postMap(
+      '/auth/password/forgot',
+      data: {'email': email.trim().toLowerCase()},
+    );
+  }
 
   Future<AuthSession> createGuest({
     required String displayName,
@@ -198,6 +220,16 @@ final class AuthRepository {
   }
 
   static String get _devicePlatform => Platform.isIOS ? 'IOS' : 'ANDROID';
+}
+
+final class RegistrationResult {
+  const RegistrationResult({
+    required this.verificationRequired,
+    this.emailHint,
+  });
+
+  final bool verificationRequired;
+  final String? emailHint;
 }
 
 final class LoginDevice {

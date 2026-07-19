@@ -145,6 +145,7 @@ model User {
   preferredLanguage                  Language                   @default(zh)
   phone                              String?                    @unique
   email                              String?                    @unique
+  emailVerifiedAt                    DateTime?
   passwordHash                       String?
   avatarUrl                          String?
   avatarPreset                       String                     @default("jade")
@@ -176,6 +177,8 @@ model User {
   adminAuditLogs                     AdminAuditLog[]            @relation("AdminAuditActor")
   createdPasswordResetTokens         AdminPasswordResetToken[]  @relation("AdminPasswordResetCreator")
   passwordResetTokens                AdminPasswordResetToken[]  @relation("AdminPasswordResetTarget")
+  emailVerificationTokens            EmailVerificationToken[]
+  selfPasswordResetTokens            UserPasswordResetToken[]
 }
 
 model UserDevice {
@@ -663,4 +666,34 @@ model AdminPasswordResetToken {
 
   @@index([userId, usedAt, expiresAt])
   @@index([createdById, createdAt])
+}
+
+/// One-time email verification capabilities. Only a keyed digest is stored;
+/// the raw token exists only in the activation email.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt, expiresAt])
+  @@index([createdAt])
+}
+
+/// One-time self-service password reset capabilities delivered to the user's
+/// verified email address. Only a keyed digest is persisted.
+model UserPasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt, expiresAt])
+  @@index([createdAt])
 }

@@ -8,9 +8,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>注册或登录｜RUSCNY</title>
   <link rel="canonical" href="https://www.ruscny.net/account">
-  <link rel="stylesheet" href="/site.css?v=20260719-8">
-  <script src="/site.js?v=20260719-7" defer></script>
-  <script src="/account.js?v=20260719-3" defer></script>
+  <link rel="stylesheet" href="/site.css?v=20260719-9">
+  <script src="/site.js?v=20260719-8" defer></script>
+  <script src="/account.js?v=20260719-4" defer></script>
 </head>
 <body class="account-page" data-page="account">
   <a class="skip-link" href="#main" data-i18n="skip">跳到主要内容</a>
@@ -55,7 +55,7 @@
 
       <div id="auth-panel">
         <div class="auth-heading">
-          <div data-mode-section="register"><h2 data-i18n="registrationTitle">创建正式账号</h2><p data-i18n="registrationText">填写资料后，账号会立即建立并登录当前网页。</p></div>
+          <div data-mode-section="register"><h2 data-i18n="registrationTitle">创建正式账号</h2><p data-i18n="registrationText">填写资料后，我们会发送激活邮件。完成邮箱认证后即可登录。</p></div>
           <div data-mode-section="login" hidden><h2 data-i18n="loginTitle">欢迎回来</h2><p data-i18n="loginText">使用与手机 App 相同的账号登录。</p></div>
         </div>
 
@@ -100,15 +100,72 @@
           </label>
 
           <button class="button button-primary auth-submit" type="submit">
-            <span data-mode-section="register" data-i18n="submitRegister">注册并登录</span>
+            <span data-mode-section="register" data-i18n="submitRegister">注册并发送激活邮件</span>
             <span data-mode-section="login" data-i18n="submitLogin" hidden>登录</span>
           </button>
         </form>
 
         <div class="auth-switch">
           <p data-mode-section="register"><span data-i18n="haveAccount">已经有账号？</span> <button type="button" data-switch-mode="login" data-i18n="signInNow">直接登录</button></p>
-          <p data-mode-section="login" hidden><span data-i18n="noAccount">还没有账号？</span> <button type="button" data-switch-mode="register" data-i18n="createNow">立即注册</button></p>
+          <p data-mode-section="login" hidden><button type="button" data-email-flow-open="forgot" data-i18n="forgotPassword">忘记密码？</button> · <span data-i18n="noAccount">还没有账号？</span> <button type="button" data-switch-mode="register" data-i18n="createNow">立即注册</button></p>
         </div>
+      </div>
+
+      <div class="email-flow-panel" id="email-flow-panel" hidden>
+        <div class="form-status email-flow-status" role="status" aria-live="polite" hidden></div>
+
+        <section data-email-flow="verification-pending" hidden>
+          <div class="email-flow-icon" aria-hidden="true">✉</div>
+          <h2 data-i18n="verificationPendingTitle">请查收激活邮件</h2>
+          <p data-i18n="verificationPendingText">账号尚未启用。打开邮件中的一次性链接完成认证后，再返回登录。</p>
+          <form class="email-action-form" id="resend-verification-form">
+            <label class="field">
+              <span data-i18n="emailLabel">邮箱 *</span>
+              <input name="email" type="email" maxlength="254" inputmode="email" autocomplete="email" required>
+            </label>
+            <button class="button button-primary" type="submit" data-i18n="resendVerification">重新发送激活邮件</button>
+          </form>
+          <button class="email-flow-back" type="button" data-switch-mode="login">← <span data-i18n="backToLogin">返回登录</span></button>
+        </section>
+
+        <section data-email-flow="forgot" hidden>
+          <div class="email-flow-icon" aria-hidden="true">↗</div>
+          <h2 data-i18n="forgotPasswordTitle">通过邮件重置密码</h2>
+          <p data-i18n="forgotPasswordText">输入已认证邮箱。如果账号可用，我们会发送一次性密码重置链接。</p>
+          <form class="email-action-form" id="forgot-password-form">
+            <label class="field">
+              <span data-i18n="emailLabel">邮箱 *</span>
+              <input name="email" type="email" maxlength="254" inputmode="email" autocomplete="email" required>
+            </label>
+            <button class="button button-primary" type="submit" data-i18n="sendResetEmail">发送重置邮件</button>
+          </form>
+          <button class="email-flow-back" type="button" data-switch-mode="login">← <span data-i18n="backToLogin">返回登录</span></button>
+        </section>
+
+        <section data-email-flow="verify" hidden>
+          <div class="email-flow-icon" aria-hidden="true">✓</div>
+          <h2 data-i18n="verifyingEmailTitle">正在认证邮箱</h2>
+          <p data-i18n="verifyingEmailText">正在安全验证一次性激活链接，请稍候。</p>
+          <button class="email-flow-back" type="button" data-switch-mode="login">← <span data-i18n="backToLogin">返回登录</span></button>
+        </section>
+
+        <section data-email-flow="reset" hidden>
+          <div class="email-flow-icon" aria-hidden="true">••</div>
+          <h2 data-i18n="resetPasswordTitle">设置新密码</h2>
+          <p data-i18n="resetPasswordText">新密码设置后，所有设备都会退出登录，需要重新认证。</p>
+          <form class="email-action-form" id="reset-password-form">
+            <label class="field">
+              <span data-i18n="newPasswordLabel">新密码 *</span>
+              <input name="newPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+            </label>
+            <label class="field">
+              <span data-i18n="confirmNewPasswordLabel">再次输入新密码 *</span>
+              <input name="confirmNewPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+            </label>
+            <button class="button button-primary" type="submit" data-i18n="confirmResetPassword">确认重置密码</button>
+          </form>
+          <button class="email-flow-back" type="button" data-switch-mode="login">← <span data-i18n="backToLogin">返回登录</span></button>
+        </section>
       </div>
 
       <div class="session-panel" id="session-panel" hidden>

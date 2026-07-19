@@ -4,7 +4,7 @@
 
 ## 1. 当前交付状态
 
-本仓库是多人会议版本的工程交付，不等同于已经上架的生产 App。2026-07-19 当前工作区通过客户官网账号注册/登录与 H5 Web 回归 11/11、Prisma generate/validate/diff、后端 build/typecheck、228/228 单元测试和生产依赖审计（0 个已知漏洞）。当前工作区共有 19 个 PostgreSQL 迁移；现有 GitHub CI 证据只覆盖当时的前 16 个迁移、13/13 API/Socket 集成测试、生产 Docker 镜像、Flutter analyzer、51/51 Flutter 测试、Android debug APK 和 iOS Simulator App 构建。最新 AI 纪要迁移与移动端批准流程仍需提交后 CI 复验。API、Socket 和 App Link 配置指向最终域名 `www.ruscny.net`，但 DNS、HTTPS、同源反向代理和正式服务部署仍未验收。当前仍缺 Apple/Google 发布账号、release 签名材料、真机矩阵、Redis 两个 API 副本的跨实例故障演练、阿里云生产凭据及已验证的邮件发信域。
+本仓库是多人会议版本的工程交付，不等同于已经上架的生产 App。2026-07-19 当前工作区通过客户官网账号、邮箱激活、邮件重置密码与 H5 Web 回归 17/17、Prisma generate/validate、后端 build/typecheck、236/236 单元测试、Flutter analyzer、59/59 Flutter 测试和生产依赖审计（0 个已知漏洞）。当前工作区共有 21 个 PostgreSQL 迁移；现有 GitHub CI 证据只覆盖当时的前 16 个迁移、13/13 API/Socket 集成测试、生产 Docker 镜像、51/51 Flutter 测试、Android debug APK 和 iOS Simulator App 构建。最新 5 个迁移、新增邮箱激活/重置的 PostgreSQL 集成场景与移动端流程仍需提交后 CI 复验。API、Socket 和 App Link 配置指向最终域名 `www.ruscny.net`，但正式商店 App 仍未验收。当前仍缺 Apple/Google 发布账号、release 签名材料、真机矩阵、Redis 两个 API 副本的跨实例故障演练、阿里云生产凭据及经过受控收件箱验证的生产邮件投递证据。
 
 下列项目必须在发布负责人提供真实环境后关闭：
 
@@ -13,13 +13,12 @@
 | 阻断 | 已有当前正式域名配置的 debug APK，但没有 release APK/AAB/IPA/TestFlight | debug 包不能代表商店发布签名、生产服务或真机验收，不满足生产交付标准 | 使用发布签名生成正式产物，记录哈希/build/证书并真机安装验证 |
 | 阻断 | 未做 Android↔iPhone 真机互通 | 麦克风、播放、前后台与重连未证明 | 完成测试报告真机矩阵 |
 | 阻断 | 未用生产账号验证中/俄 ASR→MT→TTS | mock 不能证明准确率、音色或延迟 | 真实账号双方向语料和性能验收 |
-| 阻断 | 前 16 个迁移与 13/13 API/Socket 集成场景已在 CI PostgreSQL 通过；当前新增的 3 个迁移及 Redis adapter 尚未按最新工作区以两个 API 副本复验 | 旧版单实例真实事务和迁移已证明，但不能代替当前全部 19 个迁移、跨实例广播、断连与限流证据 | 提交后从空 PostgreSQL 应用 19/19 迁移，并用 Redis 启动至少两个 API 副本执行广播、移出、限流和短断故障注入 |
+| 阻断 | 前 16 个迁移与 13/13 API/Socket 集成场景已在 CI PostgreSQL 通过；当前新增的 5 个迁移及 Redis adapter 尚未按最新工作区以两个 API 副本复验 | 旧版单实例真实事务和迁移已证明，但不能代替当前全部 21 个迁移、跨实例广播、断连与限流证据 | 提交后从空 PostgreSQL 应用 21/21 迁移，并用 Redis 启动至少两个 API 副本执行广播、移出、限流和短断故障注入 |
 | 阻断 | Flutter `pubspec.lock` 已生成并在 CI 强制，但 CocoaPods `Podfile.lock` 仍缺失 | Dart 依赖已锁定，iOS 原生传递依赖仍可漂移 | 用固定 macOS/CocoaPods 解析并提交 `Podfile.lock`，再让 CI 以 lockfile/deployment 模式安装 |
 | 阻断 | 正式域名和 association 文件未托管 | App Link/Universal Link 不会被系统验证 | 正式 HTTPS 域名文件和冷/热启动测试通过 |
 | 阻断 | 隐私/协议仍含运营主体占位字段 | 不满足发布和透明度要求 | 法律审核并补齐主体、地域、期限、第三方 |
 | 高 | 账号注销时 owner/非 owner 参会数据的保留规则需法律确认 | 可能误删业务记录或不满足删除权 | 规则、后端任务、隐私文本和测试一致 |
 | 高 | 账号注销已有最近认证/密码确认、匿名化和可查询 `DataDeletionRequest` 在线台账，会议 TTS 删除已有持久 outbox；但第三方/备份传播执行器与证明、真实 bucket 长故障恢复仍未演练 | 能追踪在线删除步骤，但仍不能证明全副本和所有受托方完成删除 | 补第三方/缓存/备份步骤执行器；用真实 PostgreSQL/S3 演练长故障、生命周期兜底和备份恢复 |
-| 高 | 管理后台已能签发一次性密码重置链接，但用户自助“忘记密码”邮件路由仍返回 `501 PASSWORD_RESET_NOT_CONFIGURED` | 用户必须联系管理员并通过受信渠道取得一次性链接，尚不能自助恢复 | 补齐防枚举、限流、验证邮件和自助重置测试，或在 App 中明确改为“联系管理员” |
 | 中 | Guest 续期严格绑定首次入会的 `deviceId`；清除浏览器/App 安全存储或更换设备后不能携带临时身份 | 需要使用当前有效邀请重新入会；已轮换的旧邀请不能使用 | 这是防止 principal capability 被拷贝到其他设备的安全取舍；需要跨设备长期访问时使用正式账号 |
 | 高 | 生产对象存储、Redis 多实例和备份恢复未演练 | 音频丢失、广播分裂或删除数据复活 | 预发布演练、监控和回滚证据 |
 | 高 | 音频上传当前只校验大小、声明 MIME 和扩展名，尚未解析文件魔数、编码或真实时长 | 伪造/异常容器可能进入 Base64 与供应商链路 | 增加解码级格式/时长校验、异常样本测试和服务端时长上限 |

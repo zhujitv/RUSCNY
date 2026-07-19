@@ -144,7 +144,11 @@ final class ApiClient {
       path.endsWith('/auth/guest/refresh') ||
       path.endsWith('/auth/login') ||
       path.endsWith('/auth/register') ||
-      path.endsWith('/auth/guest');
+      path.endsWith('/auth/guest') ||
+      path.endsWith('/auth/email/resend') ||
+      path.endsWith('/auth/email/verify') ||
+      path.endsWith('/auth/password/forgot') ||
+      path.endsWith('/auth/password/reset/email');
 
   Future<Map<String, dynamic>> getMap(
     String path, {

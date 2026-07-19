@@ -184,6 +184,72 @@ void main() {
     });
   });
 
+  test(
+      'registration waits for email verification and recovery uses public email APIs',
+      () async {
+    final tokenStore = SecureTokenStore();
+    final requests = <String, Map<String, dynamic>>{};
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test/v1'));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests[options.path] =
+              (options.data as Map).cast<String, dynamic>();
+          handler.resolve(
+            Response<dynamic>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'ok': true,
+                'data': options.path.endsWith('/auth/register')
+                    ? {
+                        'verificationRequired': true,
+                        'emailHint': 'al***@example.test',
+                      }
+                    : {'accepted': true},
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final repository = AuthRepository(
+      ApiClient(
+        baseUrl: 'https://api.example.test/v1',
+        tokenStore: tokenStore,
+        dio: dio,
+      ),
+      tokenStore,
+    );
+
+    final result = await repository.register(
+      displayName: 'Alice',
+      email: 'Alice@Example.Test',
+      password: 'password-123',
+    );
+    await repository.resendVerification('Alice@Example.Test');
+    await repository.forgotPassword('Alice@Example.Test');
+
+    expect(result.verificationRequired, isTrue);
+    expect(result.emailHint, 'al***@example.test');
+    expect(
+        requests.entries
+            .singleWhere((entry) => entry.key.endsWith('/auth/register'))
+            .value['email'],
+        'alice@example.test');
+    expect(
+        requests.entries
+            .singleWhere((entry) => entry.key.endsWith('/auth/email/resend'))
+            .value,
+        {'email': 'alice@example.test'});
+    expect(
+        requests.entries
+            .singleWhere((entry) => entry.key.endsWith('/auth/password/forgot'))
+            .value,
+        {'email': 'alice@example.test'});
+    expect(await tokenStore.readAccessToken(), isNull);
+  });
+
   test('only explicit guest deletion clears the principal token', () async {
     final tokenStore = SecureTokenStore();
     await tokenStore.writeGuestPrincipalToken('principal-token');

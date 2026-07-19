@@ -24,6 +24,13 @@ import { realtimeHub } from '../realtime-hub.js';
 import { historyExpiresAt } from '../policies.js';
 import { hashPassword, verifyPassword } from '../services/passwords.js';
 import { logoutGuestSession, refreshGuestSession } from '../services/guest-session.js';
+import {
+  emailHint,
+  emailVerificationTokenHash,
+  sendAccountPasswordResetEmail,
+  sendAccountVerificationEmail,
+  userPasswordResetTokenHash,
+} from '../services/account-emails.js';
 
 const RECENT_AUTH_WINDOW_MS = 10 * 60 * 1_000;
 const DELETED_USER_NAME = 'Deleted user';
@@ -95,6 +102,7 @@ async function issueUserSession(user: {
   interfaceLanguage?: string;
   autoPlayTranslationAudio?: boolean;
   translationPlaybackSpeed?: number;
+  emailVerifiedAt?: Date | null;
 }, deviceId: string, platform: 'ANDROID' | 'IOS' | 'UNKNOWN') {
   const authenticatedAt = new Date();
   const sessionId = randomUUID();
@@ -109,14 +117,17 @@ async function issueUserSession(user: {
     jti,
   });
   await prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<Array<{ status: string }>>`
-      SELECT "status"
+    const rows = await tx.$queryRaw<Array<{ status: string; emailVerifiedAt: Date | null }>>`
+      SELECT "status", "emailVerifiedAt"
       FROM "User"
       WHERE "id" = ${user.id}
       FOR UPDATE
     `;
     if (rows[0]?.status !== 'ACTIVE') {
       throw unauthorized('ACCOUNT_DISABLED', '账号不存在或已停用');
+    }
+    if (!rows[0]?.emailVerifiedAt) {
+      throw forbidden('EMAIL_NOT_VERIFIED', '请先通过邮件激活账号');
     }
     await tx.user.update({
       where: { id: user.id },
@@ -151,8 +162,85 @@ async function issueUserSession(user: {
   return { accessToken, refreshToken, user };
 }
 
+async function createEmailVerification(userId: string) {
+  const token = randomToken(32);
+  const tokenHash = emailVerificationTokenHash(token);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + config.EMAIL_VERIFICATION_TTL_MINUTES * 60_000);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{
+      id: string;
+      status: string;
+      email: string | null;
+      displayName: string;
+      emailVerifiedAt: Date | null;
+    }>>`
+      SELECT "id", "status", "email", "displayName", "emailVerifiedAt"
+      FROM "User"
+      WHERE "id" = ${userId}
+      FOR UPDATE
+    `;
+    const user = rows[0];
+    if (!user || user.status !== 'ACTIVE' || !user.email || user.emailVerifiedAt) return null;
+    const credential = await tx.emailVerificationToken.create({
+      data: { userId, tokenHash, expiresAt },
+      select: { id: true },
+    });
+    return { token, tokenId: credential.id, expiresAt, email: user.email, displayName: user.displayName };
+  });
+}
+
+async function deliverEmailVerification(userId: string): Promise<boolean> {
+  const credential = await createEmailVerification(userId);
+  if (!credential) return false;
+  try {
+    await sendAccountVerificationEmail({
+      to: credential.email,
+      displayName: credential.displayName,
+      token: credential.token,
+      tokenId: credential.tokenId,
+      expiresAt: credential.expiresAt,
+    });
+    return true;
+  } catch (error) {
+    await prisma.emailVerificationToken.updateMany({
+      where: { id: credential.tokenId, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    throw error;
+  }
+}
+
+async function createPasswordReset(userId: string) {
+  const token = randomToken(32);
+  const tokenHash = userPasswordResetTokenHash(token);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + config.PASSWORD_RESET_TTL_MINUTES * 60_000);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{
+      id: string;
+      status: string;
+      email: string | null;
+      displayName: string;
+      emailVerifiedAt: Date | null;
+    }>>`
+      SELECT "id", "status", "email", "displayName", "emailVerifiedAt"
+      FROM "User"
+      WHERE "id" = ${userId}
+      FOR UPDATE
+    `;
+    const user = rows[0];
+    if (!user || user.status !== 'ACTIVE' || !user.email || !user.emailVerifiedAt) return null;
+    const credential = await tx.userPasswordResetToken.create({
+      data: { userId, tokenHash, expiresAt },
+      select: { id: true },
+    });
+    return { token, tokenId: credential.id, expiresAt, email: user.email, displayName: user.displayName };
+  });
+}
+
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/v1/auth/register', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request) => {
+  app.post('/v1/auth/register', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request) => {
     if (!await systemSetting('REGISTRATION_ENABLED')) {
       throw forbidden('REGISTRATION_DISABLED', '系统暂时关闭新用户注册');
     }
@@ -164,7 +252,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       })
       .parse(request.body);
     const existing = await prisma.user.findUnique({ where: { email: body.email } });
-    if (existing) throw conflict('EMAIL_EXISTS', '该邮箱已注册');
+    if (existing) {
+      if (existing.status === 'ACTIVE' && !existing.emailVerifiedAt) {
+        throw conflict('EMAIL_VERIFICATION_REQUIRED', '该邮箱尚未激活，请重新发送激活邮件');
+      }
+      throw conflict('EMAIL_EXISTS', '该邮箱已注册');
+    }
     const passwordHash = await hashPassword(body.password, config.PASSWORD_PEPPER);
     const user = await prisma.user.create({
       data: {
@@ -182,6 +275,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         role: true,
         displayName: true,
         email: true,
+        emailVerifiedAt: true,
         company: true,
         preferredLanguage: true,
         phone: true,
@@ -193,7 +287,24 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     await seedDefaultGlossary(user.id);
-    return { ok: true, data: await issueUserSession(user, body.deviceId, body.platform) };
+    try {
+      const delivered = await deliverEmailVerification(user.id);
+      if (!delivered) throw new Error('New account was not eligible for verification email');
+    } catch (error) {
+      request.log.warn({ userId: user.id, error }, 'registration verification email failed');
+      throw new AppError(
+        503,
+        'EMAIL_DELIVERY_FAILED',
+        '账号已创建，但激活邮件暂未送出，请稍后重新发送',
+      );
+    }
+    return {
+      ok: true,
+      data: {
+        verificationRequired: true,
+        emailHint: emailHint(body.email),
+      },
+    };
   });
 
   app.post('/v1/auth/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request) => {
@@ -204,6 +315,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       : { valid: false, needsUpgrade: false };
     if (!user?.passwordHash || user.status !== 'ACTIVE' || !password.valid) {
       throw unauthorized('INVALID_CREDENTIALS', '邮箱或密码错误');
+    }
+    if (!user.emailVerifiedAt) {
+      throw forbidden('EMAIL_NOT_VERIFIED', '请先通过邮件激活账号');
     }
     if (password.needsUpgrade) {
       const upgradedHash = await hashPassword(body.password, config.PASSWORD_PEPPER);
@@ -220,6 +334,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
           role: user.role,
           displayName: user.displayName,
           email: user.email,
+          emailVerifiedAt: user.emailVerifiedAt,
           company: user.company,
           preferredLanguage: user.preferredLanguage,
           phone: user.phone,
@@ -234,6 +349,88 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       ),
     };
   });
+
+  app.post(
+    '/v1/auth/email/resend',
+    { config: { rateLimit: { max: 3, timeWindow: '15 minutes' } } },
+    async (request) => {
+      const body = z.object({
+        email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+      }).strict().parse(request.body);
+      const user = await prisma.user.findUnique({
+        where: { email: body.email },
+        select: { id: true },
+      });
+      if (user) {
+        try {
+          await deliverEmailVerification(user.id);
+        } catch (error) {
+          request.log.warn({ userId: user.id, error }, 'verification email resend failed');
+        }
+      }
+      return {
+        ok: true,
+        data: {
+          accepted: true,
+          message: '如果该邮箱对应尚未激活的账号，我们已发送新的激活邮件',
+        },
+      };
+    },
+  );
+
+  app.post(
+    '/v1/auth/email/verify',
+    { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } },
+    async (request, reply) => {
+      const body = z.object({ token: z.string().min(32).max(512) }).strict().parse(request.body);
+      const tokenHash = emailVerificationTokenHash(body.token);
+      const now = new Date();
+      const userId = await prisma.$transaction(async (tx) => {
+        const credential = await tx.emailVerificationToken.findUnique({
+          where: { tokenHash },
+          select: { id: true, userId: true, usedAt: true, expiresAt: true },
+        });
+        if (!credential || credential.usedAt || credential.expiresAt <= now) {
+          throw unauthorized('VERIFICATION_TOKEN_INVALID', '激活链接无效或已过期');
+        }
+        const rows = await tx.$queryRaw<Array<{
+          id: string;
+          status: string;
+          email: string | null;
+          emailVerifiedAt: Date | null;
+        }>>`
+          SELECT "id", "status", "email", "emailVerifiedAt"
+          FROM "User"
+          WHERE "id" = ${credential.userId}
+          FOR UPDATE
+        `;
+        const user = rows[0];
+        if (!user || user.status !== 'ACTIVE' || !user.email) {
+          throw unauthorized('VERIFICATION_TOKEN_INVALID', '激活链接无效或已过期');
+        }
+        const consumed = await tx.emailVerificationToken.updateMany({
+          where: { id: credential.id, usedAt: null, expiresAt: { gt: now } },
+          data: { usedAt: now },
+        });
+        if (consumed.count !== 1) {
+          throw unauthorized('VERIFICATION_TOKEN_INVALID', '激活链接无效或已过期');
+        }
+        if (!user.emailVerifiedAt) {
+          await tx.user.update({
+            where: { id: user.id },
+            data: { emailVerifiedAt: now },
+          });
+        }
+        await tx.emailVerificationToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: now },
+        });
+        return user.id;
+      });
+      reply.header('Cache-Control', 'no-store');
+      return { ok: true, data: { verified: true, userId } };
+    },
+  );
 
   app.post('/v1/auth/guest', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request) => {
     const body = z
@@ -523,6 +720,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized('REFRESH_TOKEN_REUSED', '刷新凭证已失效，请重新登录');
     }
     if (device.user.status !== 'ACTIVE') throw forbidden('ACCOUNT_DISABLED', '账号已停用');
+    if (!device.user.emailVerifiedAt) throw forbidden('EMAIL_NOT_VERIFIED', '请先通过邮件激活账号');
     const nextJti = randomUUID();
     const accessToken = await signAccessToken({
       subjectId: device.user.id,
@@ -567,6 +765,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
           role: device.user.role,
           displayName: device.user.displayName,
           email: device.user.email,
+          emailVerifiedAt: device.user.emailVerifiedAt,
           company: device.user.company,
           preferredLanguage: device.user.preferredLanguage,
           phone: device.user.phone,
@@ -605,6 +804,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         role: true,
         displayName: true,
         email: true,
+        emailVerifiedAt: true,
         phone: true,
         company: true,
         preferredLanguage: true,
@@ -650,6 +850,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         role: true,
         displayName: true,
         email: true,
+        emailVerifiedAt: true,
         phone: true,
         company: true,
         preferredLanguage: true,
@@ -714,6 +915,14 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         if (changed.count !== 1) {
           throw conflict('ACCOUNT_CHANGED', '账号状态已发生变化，请重新登录后再试');
         }
+        await tx.userPasswordResetToken.updateMany({
+          where: { userId: request.auth.subjectId, usedAt: null },
+          data: { usedAt: changedAt },
+        });
+        await tx.adminPasswordResetToken.updateMany({
+          where: { userId: request.auth.subjectId, usedAt: null },
+          data: { usedAt: changedAt },
+        });
         const otherDevices = await tx.userDevice.findMany({
           where: {
             userId: request.auth.subjectId,
@@ -864,14 +1073,116 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, data: {} };
   });
 
-  app.post('/v1/auth/password/forgot', { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } }, async (request) => {
-    z.object({ email: z.string().email() }).parse(request.body);
-    throw new AppError(
-      501,
-      'PASSWORD_RESET_NOT_CONFIGURED',
-      '密码重置邮件服务尚未配置，请联系管理员',
-    );
-  });
+  app.post(
+    '/v1/auth/password/forgot',
+    { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } },
+    async (request) => {
+      const body = z.object({
+        email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+      }).strict().parse(request.body);
+      const user = await prisma.user.findUnique({
+        where: { email: body.email },
+        select: { id: true },
+      });
+      if (user) {
+        let credential: Awaited<ReturnType<typeof createPasswordReset>> = null;
+        try {
+          credential = await createPasswordReset(user.id);
+          if (credential) {
+            await sendAccountPasswordResetEmail({
+              to: credential.email,
+              displayName: credential.displayName,
+              token: credential.token,
+              tokenId: credential.tokenId,
+              expiresAt: credential.expiresAt,
+            });
+          }
+        } catch (error) {
+          if (credential) {
+            await prisma.userPasswordResetToken.updateMany({
+              where: { id: credential.tokenId, usedAt: null },
+              data: { usedAt: new Date() },
+            });
+          }
+          request.log.warn({ userId: user.id, error }, 'password reset email failed');
+        }
+      }
+      return {
+        ok: true,
+        data: {
+          accepted: true,
+          message: '如果该邮箱对应可用账号，我们已发送密码重置邮件',
+        },
+      };
+    },
+  );
+
+  app.post(
+    '/v1/auth/password/reset/email',
+    { config: { rateLimit: { max: 8, timeWindow: '1 hour' } } },
+    async (request, reply) => {
+      const body = z.object({
+        token: z.string().min(32).max(512),
+        newPassword: z.string().min(8).max(128),
+      }).strict().parse(request.body);
+      const now = new Date();
+      const tokenHash = userPasswordResetTokenHash(body.token);
+      const passwordHash = await hashPassword(body.newPassword, config.PASSWORD_PEPPER);
+      const userId = await prisma.$transaction(async (tx) => {
+        const credential = await tx.userPasswordResetToken.findUnique({
+          where: { tokenHash },
+          select: { id: true, userId: true, usedAt: true, expiresAt: true },
+        });
+        if (!credential || credential.usedAt || credential.expiresAt <= now) {
+          throw unauthorized('RESET_TOKEN_INVALID', '重置链接无效或已过期');
+        }
+        const rows = await tx.$queryRaw<Array<{
+          id: string;
+          status: string;
+          emailVerifiedAt: Date | null;
+        }>>`
+          SELECT "id", "status", "emailVerifiedAt"
+          FROM "User"
+          WHERE "id" = ${credential.userId}
+          FOR UPDATE
+        `;
+        const user = rows[0];
+        if (!user || user.status !== 'ACTIVE' || !user.emailVerifiedAt) {
+          throw unauthorized('RESET_TOKEN_INVALID', '重置链接无效或已过期');
+        }
+        const consumed = await tx.userPasswordResetToken.updateMany({
+          where: { id: credential.id, usedAt: null, expiresAt: { gt: now } },
+          data: { usedAt: now },
+        });
+        if (consumed.count !== 1) {
+          throw unauthorized('RESET_TOKEN_INVALID', '重置链接无效或已过期');
+        }
+        const changed = await tx.user.updateMany({
+          where: { id: user.id, status: 'ACTIVE', emailVerifiedAt: { not: null } },
+          data: { passwordHash },
+        });
+        if (changed.count !== 1) {
+          throw unauthorized('RESET_TOKEN_INVALID', '重置链接无效或已过期');
+        }
+        await tx.userDevice.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: now, refreshTokenHash: null, refreshTokenJti: null },
+        });
+        await tx.userPasswordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: now },
+        });
+        await tx.adminPasswordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: now },
+        });
+        return user.id;
+      });
+      realtimeHub().disconnectSubject(userId);
+      reply.header('Cache-Control', 'no-store');
+      return { ok: true, data: { reset: true } };
+    },
+  );
 
   app.delete('/v1/auth/account', { preHandler: authenticate }, async (request) => {
     const body = z
