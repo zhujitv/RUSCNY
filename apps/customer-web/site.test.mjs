@@ -75,8 +75,8 @@ test('homepage lazily loads the matching Chinese or Russian promotional film', a
 
   assert.match(home, /class="promo-film-video"/);
   assert.match(home, /preload="none"/);
-  assert.match(home, /data-src-zh="https:\/\/media\.ruscny\.net\/RUSCNY-homepage-promo-zh\.mp4"/);
-  assert.match(home, /data-src-ru="https:\/\/media\.ruscny\.net\/RUSCNY-homepage-promo-ru\.mp4"/);
+  assert.match(home, /data-src-zh="https:\/\/media\.ruscny\.net\/RUSCNY-homepage-promo-zh\.mp4\?v=mobile-20260719"/);
+  assert.match(home, /data-src-ru="https:\/\/media\.ruscny\.net\/RUSCNY-homepage-promo-ru\.mp4\?v=mobile-20260719"/);
   assert.doesNotMatch(home, /<video[^>]*\sautoplay/);
   assert.match(source, /IntersectionObserver/);
   assert.match(source, /promoFilm\.dataset\.srcRu/);
