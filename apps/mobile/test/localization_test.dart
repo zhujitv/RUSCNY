@@ -48,6 +48,18 @@ void main() {
       'Протокол встречи',
     );
     expect(
+      AppLocalization.translateForLocale('会议纪要工作区', locale),
+      'Рабочая область протокола',
+    );
+    expect(
+      AppLocalization.translateForLocale(
+        '会议内容已变化，需要重新生成',
+        locale,
+      ),
+      'Содержание встречи изменилось. '
+      'Протокол нужно создать заново.',
+    );
+    expect(
       AppLocalization.translateForLocale('本次会议参会信息', locale),
       'Данные участника этой встречи',
     );

@@ -301,20 +301,8 @@ final class _ConversationDetailPageState
                         const PopupMenuDivider(),
                         const PopupMenuItem(
                           value: 'summary',
-                          child: AppText('查看会议纪要'),
+                          child: AppText('会议纪要工作区'),
                         ),
-                        if (isOwner &&
-                            data.$1.status == ConversationStatus.ended)
-                          const PopupMenuItem(
-                            value: 'summary-generate',
-                            child: AppText('生成或更新会议纪要'),
-                          ),
-                        if (isOwner &&
-                            data.$1.status == ConversationStatus.ended)
-                          const PopupMenuItem(
-                            value: 'summary-email',
-                            child: AppText('邮件分发会议纪要'),
-                          ),
                         if (isOwner)
                           const PopupMenuItem(
                             value: 'rename',
@@ -368,6 +356,17 @@ final class _ConversationDetailPageState
                     '会后权限：${conversation.guestHistoryPolicy.label}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  if (conversation.status == ConversationStatus.ended) ...[
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.tonalIcon(
+                        onPressed: () => _showSummary(conversation),
+                        icon: const Icon(Icons.summarize_outlined),
+                        label: const AppText('会议纪要工作区'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -465,10 +464,6 @@ final class _ConversationDetailPageState
         await _delete(conversation);
       case 'summary':
         await _showSummary(conversation);
-      case 'summary-generate':
-        await _showSummary(conversation, regenerate: true);
-      case 'summary-email':
-        await _emailSummary(conversation);
     }
   }
 
@@ -625,18 +620,88 @@ final class _ConversationDetailPageState
         _ => '缺少可用邮箱',
       };
 
-  Future<void> _showSummary(
-    Conversation conversation, {
-    bool regenerate = false,
-  }) async {
+  Future<void> _showSummary(Conversation conversation) async {
     final isOwner = ref.read(authControllerProvider).valueOrNull?.userId ==
         conversation.ownerId;
-    if (regenerate) {
-      final confirmed = await showDialog<bool>(
+    final canManage =
+        isOwner && conversation.status == ConversationStatus.ended;
+    final repository = ref.read(conversationRepositoryProvider);
+    var shouldGenerate = false;
+
+    while (mounted) {
+      if (shouldGenerate) {
+        final confirmed = await _confirmSummaryRegeneration();
+        if (confirmed != true || !mounted) return;
+      }
+
+      MeetingSummary summary;
+      _showSummaryProgress(
+        shouldGenerate ? '正在生成会议纪要，通常需要几十秒…' : '正在加载会议纪要…',
+      );
+      try {
+        summary = shouldGenerate
+            ? await repository.generateSummary(conversation.id)
+            : await repository.summary(conversation.id);
+      } on AppException catch (error) {
+        _clearSummaryProgress();
+        if (error.code == 'SUMMARY_NOT_FOUND' && canManage && !shouldGenerate) {
+          shouldGenerate = true;
+          continue;
+        }
+        _snack(error.message);
+        return;
+      } catch (error) {
+        _clearSummaryProgress();
+        _snack(readableError(error));
+        return;
+      }
+      _clearSummaryProgress();
+      if (!mounted) return;
+      shouldGenerate = false;
+
+      final action = await showModalBottomSheet<_SummaryAction>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (context) => _SummaryWorkspace(
+          summary: summary,
+          isOwner: isOwner,
+          conversationStatus: conversation.status,
+        ),
+      );
+      if (!mounted || action == null) return;
+
+      switch (action) {
+        case _SummaryAction.approve:
+          _showSummaryProgress('正在确认会议纪要…');
+          try {
+            await repository.approveSummary(
+              conversation.id,
+              summary.revision,
+            );
+            _clearSummaryProgress();
+            if (!mounted) return;
+            _snack('会议纪要已确认，可以邮件分发');
+          } catch (error) {
+            _clearSummaryProgress();
+            _snack(readableError(error));
+            return;
+          }
+        case _SummaryAction.regenerate:
+          shouldGenerate = true;
+        case _SummaryAction.email:
+          await _emailSummary(conversation);
+          return;
+      }
+    }
+  }
+
+  Future<bool?> _confirmSummaryRegeneration() => showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const AppText('生成或更新会议纪要？'),
-          content: const AppText('如果已有纪要，将按当前最终消息重建，原有人工填写内容会被替换。'),
+          content: const AppText('将按当前最终消息生成新纪要。如果已有纪要，现有内容会被替换。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -649,118 +714,33 @@ final class _ConversationDetailPageState
           ],
         ),
       );
-      if (confirmed != true || !mounted) return;
-    }
-    try {
-      final repository = ref.read(conversationRepositoryProvider);
-      final summary = regenerate
-          ? await repository.generateSummary(conversation.id)
-          : await repository.summary(conversation.id);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const AppText('会议纪要'),
-          content: SizedBox(
-            width: 620,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (summary.isStale == true) ...[
-                    const AppText(
-                      '会议纪要可能已过期，请由主持人重新生成',
-                      style: TextStyle(
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ] else if (summary.isStale == null) ...[
-                    const AppText(
-                      '旧版会议纪要无法验证来源版本，建议重新生成',
-                      style: TextStyle(color: Colors.orange),
-                    ),
-                    const SizedBox(height: 12),
-                  ] else if (!summary.isApproved) ...[
-                    const AppText(
-                      'AI 生成内容尚未由主持人确认，暂不能邮件分发',
-                      style: TextStyle(
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  const AppText(
-                    '参会人员',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  for (final participant in summary.participants)
-                    AppText(
-                      '• ${participant.displayName}｜${participant.company ?? '-'}｜${participant.preferredLanguage.label}',
-                      translate: false,
-                    ),
-                  const SizedBox(height: 12),
-                  const AppText(
-                    '核心讨论内容',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  AppText(summary.summary, translate: false),
-                  for (final item in summary.coreDiscussion)
-                    AppText(
-                      '• ${item['speakerDisplayName'] ?? '参会者'}：'
-                      '${item['sourceText'] ?? ''}\n  ${item['translatedText'] ?? ''}',
-                      translate: false,
-                    ),
-                  _SummaryList(title: '各方观点', values: summary.partyViews),
-                  _SummaryList(title: '已确认事项', values: summary.confirmedItems),
-                  _SummaryList(title: '待办事项及负责人', values: summary.actionItems),
-                  _SummaryList(title: '尚未解决的问题', values: summary.openQuestions),
-                ],
+
+  void _showSummaryProgress(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(minutes: 3),
+        content: Row(
+          children: [
+            const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
               ),
             ),
-          ),
-          actions: [
-            if (isOwner &&
-                conversation.status == ConversationStatus.ended &&
-                summary.isStale == false &&
-                !summary.isApproved)
-              FilledButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  try {
-                    await repository.approveSummary(
-                      conversation.id,
-                      summary.revision,
-                    );
-                    if (mounted) _snack('会议纪要已确认，可以邮件分发');
-                  } catch (error) {
-                    if (mounted) _snack(readableError(error));
-                  }
-                },
-                child: const AppText('确认内容无误'),
-              ),
-            if (isOwner &&
-                conversation.status == ConversationStatus.ended &&
-                !regenerate)
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  unawaited(_showSummary(conversation, regenerate: true));
-                },
-                child: const AppText('生成或更新会议纪要'),
-              ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const AppText('关闭'),
-            ),
+            const SizedBox(width: 12),
+            Expanded(child: AppText(message)),
           ],
         ),
-      );
-    } catch (error) {
-      _snack(readableError(error));
-    }
+      ),
+    );
+  }
+
+  void _clearSummaryProgress() {
+    if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
   }
 
   Rect _shareOrigin() {
@@ -844,35 +824,469 @@ final class _ConversationDetailPageState
   }
 }
 
-final class _SummaryList extends StatelessWidget {
-  const _SummaryList({required this.title, required this.values});
+enum _SummaryAction { approve, regenerate, email }
 
-  final String title;
-  final List<dynamic> values;
+enum _SummarySectionKind { partyView, confirmedItem, actionItem, openQuestion }
+
+final class _SummaryWorkspace extends StatelessWidget {
+  const _SummaryWorkspace({
+    required this.summary,
+    required this.isOwner,
+    required this.conversationStatus,
+  });
+
+  final MeetingSummary summary;
+  final bool isOwner;
+  final ConversationStatus conversationStatus;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppText(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (values.isEmpty)
-              const AppText('—', translate: false)
-            else
-              for (final value in values)
-                AppText('• ${_label(value)}', translate: false),
-          ],
+  Widget build(BuildContext context) {
+    final canManage = isOwner && conversationStatus == ConversationStatus.ended;
+    final canApprove =
+        canManage && summary.isStale == false && !summary.isApproved;
+    final canEmail =
+        canManage && summary.isStale == false && summary.isApproved;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return FractionallySizedBox(
+      heightFactor: 0.94,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 12, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppText(
+                        '会议纪要工作区',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${'版本'.tr(context)} ${summary.revision}  ·  '
+                        '${'生成于'.tr(context)} '
+                        '${DateFormat('yyyy-MM-dd HH:mm').format(summary.generatedAt.toLocal())}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '关闭'.tr(context),
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SelectionArea(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  _SummaryStatusBanner(summary: summary),
+                  const SizedBox(height: 16),
+                  _SummaryCard(
+                    title: '会议概要',
+                    icon: Icons.subject_outlined,
+                    child: AppText(summary.summary, translate: false),
+                  ),
+                  const SizedBox(height: 12),
+                  _SummaryCard(
+                    title: '参会人员',
+                    icon: Icons.groups_outlined,
+                    child: summary.participants.isEmpty
+                        ? const AppText('暂无参会人员')
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final participant in summary.participants)
+                                Chip(
+                                  avatar: const Icon(
+                                    Icons.person_outline,
+                                    size: 18,
+                                  ),
+                                  label: AppText(
+                                    [
+                                      participant.displayName,
+                                      if (participant.company?.isNotEmpty ==
+                                          true)
+                                        participant.company!,
+                                      participant.preferredLanguage.label,
+                                    ].join(' · '),
+                                    translate: false,
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                  const SizedBox(height: 12),
+                  _SummaryCard(
+                    title: '核心讨论内容',
+                    icon: Icons.forum_outlined,
+                    child: summary.coreDiscussion.isEmpty
+                        ? const AppText('暂无核心讨论内容')
+                        : Column(
+                            children: [
+                              for (var index = 0;
+                                  index < summary.coreDiscussion.length;
+                                  index++)
+                                _CoreDiscussionItem(
+                                  index: index,
+                                  item: summary.coreDiscussion[index],
+                                ),
+                            ],
+                          ),
+                  ),
+                  const SizedBox(height: 12),
+                  _SummaryList(
+                    title: '各方观点',
+                    icon: Icons.record_voice_over_outlined,
+                    values: summary.partyViews,
+                    participants: summary.participants,
+                    kind: _SummarySectionKind.partyView,
+                  ),
+                  const SizedBox(height: 12),
+                  _SummaryList(
+                    title: '已确认事项',
+                    icon: Icons.task_alt_outlined,
+                    values: summary.confirmedItems,
+                    participants: summary.participants,
+                    kind: _SummarySectionKind.confirmedItem,
+                  ),
+                  const SizedBox(height: 12),
+                  _SummaryList(
+                    title: '待办事项及负责人',
+                    icon: Icons.assignment_outlined,
+                    values: summary.actionItems,
+                    participants: summary.participants,
+                    kind: _SummarySectionKind.actionItem,
+                  ),
+                  const SizedBox(height: 12),
+                  _SummaryList(
+                    title: '尚未解决的问题',
+                    icon: Icons.help_outline,
+                    values: summary.openQuestions,
+                    participants: summary.participants,
+                    kind: _SummarySectionKind.openQuestion,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Material(
+            color: colorScheme.surface,
+            elevation: 8,
+            child: SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (canManage)
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _SummaryAction.regenerate,
+                      ),
+                      icon: const Icon(Icons.refresh),
+                      label: const AppText('重新生成'),
+                    ),
+                  if (canApprove)
+                    FilledButton.icon(
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _SummaryAction.approve,
+                      ),
+                      icon: const Icon(Icons.verified_outlined),
+                      label: const AppText('确认内容无误'),
+                    ),
+                  if (canEmail)
+                    FilledButton.icon(
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _SummaryAction.email,
+                      ),
+                      icon: const Icon(Icons.forward_to_inbox_outlined),
+                      label: const AppText('邮件分发'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _SummaryStatusBanner extends StatelessWidget {
+  const _SummaryStatusBanner({required this.summary});
+
+  final MeetingSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final (icon, message, foreground, background) =
+        switch ((summary.isStale, summary.isApproved)) {
+      (true, _) => (
+          Icons.warning_amber_rounded,
+          '会议内容已变化，需要重新生成',
+          colorScheme.onErrorContainer,
+          colorScheme.errorContainer,
+        ),
+      (null, _) => (
+          Icons.history_outlined,
+          '旧版会议纪要无法验证来源版本，建议重新生成',
+          colorScheme.onTertiaryContainer,
+          colorScheme.tertiaryContainer,
+        ),
+      (false, true) => (
+          Icons.verified_outlined,
+          '主持人已确认，可以邮件分发',
+          colorScheme.onPrimaryContainer,
+          colorScheme.primaryContainer,
+        ),
+      _ => (
+          Icons.auto_awesome_outlined,
+          'AI 草稿，等待主持人确认',
+          colorScheme.onSecondaryContainer,
+          colorScheme.secondaryContainer,
+        ),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: foreground),
+          const SizedBox(width: 10),
+          Expanded(
+            child: AppText(
+              message,
+              style: TextStyle(
+                color: foreground,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Card.outlined(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 20),
+                  const SizedBox(width: 8),
+                  AppText(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              child,
+            ],
+          ),
         ),
       );
+}
 
-  static String _label(dynamic value) {
-    if (value is Map) {
-      return value.entries
-          .map((item) => '${item.key}: ${item.value}')
-          .join('｜');
+final class _CoreDiscussionItem extends StatelessWidget {
+  const _CoreDiscussionItem({required this.index, required this.item});
+
+  final int index;
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final speaker = item['speakerDisplayName']?.toString().trim();
+    final source = item['sourceText']?.toString().trim() ?? '';
+    final translated = item['translatedText']?.toString().trim() ?? '';
+    return Padding(
+      padding: EdgeInsets.only(top: index == 0 ? 0 : 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 13,
+            child: Text('${index + 1}', style: const TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppText(
+                  speaker?.isNotEmpty == true ? speaker! : '参会者',
+                  translate: speaker?.isNotEmpty != true,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                if (source.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  AppText(source, translate: false),
+                ],
+                if (translated.isNotEmpty && translated != source) ...[
+                  const SizedBox(height: 4),
+                  AppText(
+                    translated,
+                    translate: false,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _SummaryList extends StatelessWidget {
+  const _SummaryList({
+    required this.title,
+    required this.icon,
+    required this.values,
+    required this.participants,
+    required this.kind,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<dynamic> values;
+  final List<Participant> participants;
+  final _SummarySectionKind kind;
+
+  @override
+  Widget build(BuildContext context) => _SummaryCard(
+        title: title,
+        icon: icon,
+        child: values.isEmpty
+            ? const AppText('暂无内容')
+            : Column(
+                children: [
+                  for (var index = 0; index < values.length; index++)
+                    Padding(
+                      padding: EdgeInsets.only(top: index == 0 ? 0 : 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.check_circle_outline,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(child: _content(context, values[index])),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+      );
+
+  Widget _content(BuildContext context, dynamic value) {
+    if (value is! Map) return AppText(value.toString(), translate: false);
+    final item = value.cast<dynamic, dynamic>();
+    final primary = switch (kind) {
+      _SummarySectionKind.partyView => item['view'],
+      _SummarySectionKind.confirmedItem ||
+      _SummarySectionKind.actionItem ||
+      _SummarySectionKind.openQuestion =>
+        item['text'],
     }
-    return value.toString();
+        ?.toString()
+        .trim();
+    final metadata = <String>[];
+
+    if (kind == _SummarySectionKind.partyView) {
+      final participant = _participantName(item['participantId']);
+      if (participant != null) metadata.add(participant);
+    }
+    if (kind == _SummarySectionKind.actionItem) {
+      final assignee = _participantName(item['assigneeParticipantId']);
+      metadata.add(
+        assignee == null
+            ? '未指定负责人'.tr(context)
+            : '${'负责人'.tr(context)}：$assignee',
+      );
+      final dueAt = DateTime.tryParse(item['dueAt']?.toString() ?? '');
+      if (dueAt != null) {
+        metadata.add(
+          '${'截止时间'.tr(context)}：'
+          '${DateFormat('yyyy-MM-dd HH:mm').format(dueAt.toLocal())}',
+        );
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AppText(
+          primary?.isNotEmpty == true ? primary! : '未填写内容',
+          translate: primary?.isNotEmpty != true,
+        ),
+        if (metadata.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          AppText(
+            metadata.join(' · '),
+            translate: false,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ],
+    );
+  }
+
+  String? _participantName(dynamic participantId) {
+    final id = participantId?.toString();
+    if (id == null || id.isEmpty) return null;
+    for (final participant in participants) {
+      if (participant.id == id) return participant.displayName;
+    }
+    return null;
   }
 }
 
