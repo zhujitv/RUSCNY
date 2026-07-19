@@ -730,9 +730,8 @@ final class MeetingSummary {
         sourceMessageCount: (json['sourceMessageCount'] as num?)?.toInt(),
         isStale: json['isStale'] is bool ? json['isStale'] as bool : null,
         approvedRevision: (json['approvedRevision'] as num?)?.toInt(),
-        approvedAt: json['approvedAt'] == null
-            ? null
-            : _date(json['approvedAt']),
+        approvedAt:
+            json['approvedAt'] == null ? null : _date(json['approvedAt']),
       );
 }
 
