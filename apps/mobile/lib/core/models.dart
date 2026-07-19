@@ -180,7 +180,7 @@ double _playbackSpeed(dynamic value) {
   final parsed = value is num
       ? value.toDouble()
       : double.tryParse(value?.toString() ?? '');
-  return const {0.75, 1.0, 1.25, 1.5}.contains(parsed) ? parsed! : 1;
+  return {0.75, 1.0, 1.25, 1.5}.contains(parsed) ? parsed! : 1;
 }
 
 final class Contact {
