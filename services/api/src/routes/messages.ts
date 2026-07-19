@@ -104,6 +104,12 @@ async function processMessage(input: ProcessInput) {
   const conversation = await getConversationForAuth(input.request.auth, input.conversationId, {
     history: true,
   });
+  if (
+    conversation.expiresAt <= new Date() ||
+    (conversation.status !== 'WAITING' && conversation.status !== 'ACTIVE')
+  ) {
+    throw forbidden('ROOM_NOT_ACTIVE', '会议已结束或过期');
+  }
   const participant = await getParticipant(input.request.auth, input.conversationId);
   assertParticipantCanSpeak(conversation.status, participant.role, conversation.expiresAt);
   if (participant.preferredLanguage !== input.sourceLanguage) {
