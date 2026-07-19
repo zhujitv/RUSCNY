@@ -8,9 +8,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>注册或登录｜RUSCNY</title>
   <link rel="canonical" href="https://www.ruscny.net/account">
-  <link rel="stylesheet" href="/site.css?v=20260719-7">
-  <script src="/site.js?v=20260719-6" defer></script>
-  <script src="/account.js?v=20260719-2" defer></script>
+  <link rel="stylesheet" href="/site.css?v=20260719-8">
+  <script src="/site.js?v=20260719-7" defer></script>
+  <script src="/account.js?v=20260719-3" defer></script>
 </head>
 <body class="account-page" data-page="account">
   <a class="skip-link" href="#main" data-i18n="skip">跳到主要内容</a>
@@ -112,20 +112,102 @@
       </div>
 
       <div class="session-panel" id="session-panel" hidden>
-        <span class="success-mark" aria-hidden="true">✓</span>
-        <h2 data-i18n="sessionTitle">账号已就绪</h2>
-        <p data-i18n="sessionLead">当前网页已登录。请在手机 App 中使用同一账号进入完整工作区。</p>
-        <dl class="profile-list">
-          <div><dt data-i18n="profileName">显示名称</dt><dd data-profile="displayName">—</dd></div>
-          <div><dt data-i18n="profileEmail">邮箱</dt><dd data-profile="email">—</dd></div>
-          <div><dt data-i18n="profileCompany">公司</dt><dd data-profile="company">—</dd></div>
-          <div><dt data-i18n="profileLanguage">语言</dt><dd data-profile="preferredLanguage">—</dd></div>
-        </dl>
-        <div class="session-actions">
-          <a class="button button-primary" href="/#download" data-i18n="getApp">获取应用</a>
-          <a class="button button-quiet" href="/join" data-i18n="joinMeeting">加入会议</a>
+        <div class="account-profile-head">
+          <span class="account-avatar avatar-jade" data-avatar-preview aria-hidden="true">用</span>
+          <div>
+            <h2 data-profile="displayName">账号设置</h2>
+            <p data-profile="email">—</p>
+          </div>
         </div>
-        <button class="logout-button" id="logout-button" type="button" data-i18n="logout">退出当前网页账号</button>
+
+        <div class="settings-tabs" role="tablist" aria-label="账号设置">
+          <button type="button" role="tab" aria-selected="true" data-settings-tab="profile" data-i18n="settingsProfileTab">个人资料</button>
+          <button type="button" role="tab" aria-selected="false" data-settings-tab="preferences" data-i18n="settingsPreferencesTab">个人偏好</button>
+          <button type="button" role="tab" aria-selected="false" data-settings-tab="security" data-i18n="settingsSecurityTab">密码与安全</button>
+        </div>
+        <div class="settings-status" role="status" aria-live="polite" hidden></div>
+
+        <form class="settings-form" id="profile-form" data-settings-panel="profile">
+          <fieldset class="avatar-field">
+            <legend data-i18n="avatarLabel">个性化头像</legend>
+            <div class="avatar-grid">
+              <label><input type="radio" name="avatarPreset" value="jade" checked><span class="avatar-jade">玉</span></label>
+              <label><input type="radio" name="avatarPreset" value="ocean"><span class="avatar-ocean">海</span></label>
+              <label><input type="radio" name="avatarPreset" value="amber"><span class="avatar-amber">金</span></label>
+              <label><input type="radio" name="avatarPreset" value="plum"><span class="avatar-plum">梅</span></label>
+              <label><input type="radio" name="avatarPreset" value="graphite"><span class="avatar-graphite">墨</span></label>
+              <label><input type="radio" name="avatarPreset" value="rose"><span class="avatar-rose">霞</span></label>
+            </div>
+          </fieldset>
+          <label class="field">
+            <span data-i18n="settingsDisplayName">显示名称 *</span>
+            <input name="displayName" type="text" minlength="1" maxlength="100" autocomplete="name" required>
+          </label>
+          <label class="field">
+            <span data-i18n="settingsCompany">所属公司</span>
+            <input name="company" type="text" maxlength="200" autocomplete="organization">
+          </label>
+          <label class="field">
+            <span data-i18n="settingsPhone">手机号</span>
+            <input name="phone" type="tel" minlength="5" maxlength="30" autocomplete="tel">
+          </label>
+          <fieldset class="choice-field">
+            <legend data-i18n="languagePreference">主要使用语言 *</legend>
+            <div class="choice-grid">
+              <label><input type="radio" name="preferredLanguage" value="zh"><span>🇨🇳 中文</span></label>
+              <label><input type="radio" name="preferredLanguage" value="ru"><span>🇷🇺 Русский</span></label>
+            </div>
+          </fieldset>
+          <button class="button button-primary settings-submit" type="submit" data-i18n="saveProfile">保存个人资料</button>
+        </form>
+
+        <form class="settings-form" id="preferences-form" data-settings-panel="preferences" hidden>
+          <label class="field">
+            <span data-i18n="interfaceLanguageLabel">默认界面语言</span>
+            <select name="interfaceLanguage">
+              <option value="system" data-i18n="followSystem">跟随设备系统</option>
+              <option value="zh">🇨🇳 中文</option>
+              <option value="ru">🇷🇺 Русский</option>
+            </select>
+          </label>
+          <label class="preference-switch">
+            <span><b data-i18n="autoPlayLabel">自动播放最终译文</b><small data-i18n="autoPlayHelp">临时识别内容不会播放</small></span>
+            <input name="autoPlayTranslationAudio" type="checkbox" role="switch">
+          </label>
+          <label class="field">
+            <span data-i18n="playbackSpeedLabel">译文播放速度</span>
+            <select name="translationPlaybackSpeed">
+              <option value="0.75">0.75×</option>
+              <option value="1">1.0×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+            </select>
+          </label>
+          <p class="settings-hint" data-i18n="preferencesSyncHint">这些偏好保存在账号中，登录其他设备后仍可继续使用。</p>
+          <button class="button button-primary settings-submit" type="submit" data-i18n="savePreferences">保存个人偏好</button>
+        </form>
+
+        <form class="settings-form" id="password-form" data-settings-panel="security" hidden>
+          <p class="security-note" data-i18n="passwordSecurityNote">修改成功后，除当前设备外的其他登录设备会立即下线。</p>
+          <label class="field">
+            <span data-i18n="currentPasswordLabel">当前密码 *</span>
+            <input name="currentPassword" type="password" minlength="8" maxlength="128" autocomplete="current-password" required>
+          </label>
+          <label class="field">
+            <span data-i18n="newPasswordLabel">新密码 *</span>
+            <input name="newPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+          </label>
+          <label class="field">
+            <span data-i18n="confirmNewPasswordLabel">再次输入新密码 *</span>
+            <input name="confirmNewPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+          </label>
+          <button class="button button-primary settings-submit" type="submit" data-i18n="changePassword">修改密码</button>
+        </form>
+
+        <div class="session-actions">
+          <a class="button button-quiet" href="/join" data-i18n="joinMeeting">加入会议</a>
+          <button class="button button-quiet" id="logout-button" type="button" data-i18n="logout">退出当前网页账号</button>
+        </div>
       </div>
     </section>
   </main>

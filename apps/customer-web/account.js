@@ -5,14 +5,19 @@
     device: 'ruscny.web.device',
     session: 'ruscny.account.session',
   };
+  const allowedAvatars = new Set(['jade', 'ocean', 'amber', 'plum', 'graphite', 'rose']);
   const authForm = document.querySelector('#account-form');
   const authPanel = document.querySelector('#auth-panel');
   const sessionPanel = document.querySelector('#session-panel');
   const statusBox = document.querySelector('.form-status');
+  const settingsStatus = document.querySelector('.settings-status');
   const submitButton = document.querySelector('.auth-submit');
   const passwordInput = document.querySelector('#account-password');
   const confirmPasswordInput = document.querySelector('#confirm-password');
   const logoutButton = document.querySelector('#logout-button');
+  const profileForm = document.querySelector('#profile-form');
+  const preferencesForm = document.querySelector('#preferences-form');
+  const changePasswordForm = document.querySelector('#password-form');
   let mode = 'register';
   let session = readSession();
   let refreshInFlight = null;
@@ -21,14 +26,16 @@
     zh: {
       loading: '正在提交…', restoring: '正在恢复当前网页账号…', registered: '注册成功，账号已建立。', loggedIn: '登录成功。',
       requiredName: '请输入姓名或显示名称。', invalidEmail: '请输入有效邮箱。', invalidPassword: '密码必须为 8 至 128 位。', mismatch: '两次输入的密码不一致。', consent: '请先阅读并同意用户协议和隐私政策。',
-      EMAIL_EXISTS: '该邮箱已注册，请直接登录。', INVALID_CREDENTIALS: '邮箱或密码错误。', RATE_LIMITED: '操作过于频繁，请稍后再试。', VALIDATION_ERROR: '填写内容不符合要求，请检查后重试。', ACCOUNT_DISABLED: '账号不存在或已停用。',
-      SERVICE_PREPARING: '账号服务正在准备中，当前不会创建账号。正式开放后即可注册或登录。', network: '无法连接服务器，请检查网络后重试。', generic: '暂时无法完成操作，请稍后重试。', notSet: '未填写', chinese: '🇨🇳 中文', russian: '🇷🇺 Русский', loggingOut: '正在退出…'
+      EMAIL_EXISTS: '该邮箱已注册，请直接登录。', INVALID_CREDENTIALS: '邮箱或密码错误。', INVALID_CURRENT_PASSWORD: '当前密码错误。', PASSWORD_UNCHANGED: '新密码不能与当前密码相同。', ACCOUNT_CHANGED: '账号状态已变化，请重新登录后再试。', DUPLICATE_RESOURCE: '该手机号已被其他账号使用。', RATE_LIMITED: '操作过于频繁，请稍后再试。', VALIDATION_ERROR: '填写内容不符合要求，请检查后重试。', ACCOUNT_DISABLED: '账号不存在或已停用。', DEVICE_REVOKED: '当前设备已下线，请重新登录。',
+      SERVICE_PREPARING: '账号服务正在准备中，当前不会创建账号。正式开放后即可注册或登录。', network: '无法连接服务器，请检查网络后重试。', generic: '暂时无法完成操作，请稍后重试。', notSet: '未填写', chinese: '🇨🇳 中文', russian: '🇷🇺 Русский', loggingOut: '正在退出…',
+      saving: '正在保存…', profileSaved: '个人资料已保存。', preferencesSaved: '个人偏好已保存并同步到账号。', passwordChanged: '密码已修改，其他登录设备已下线。', passwordMismatch: '两次输入的新密码不一致。', passwordSame: '新密码不能与当前密码相同。'
     },
     ru: {
       loading: 'Отправка…', restoring: 'Восстанавливаем вход…', registered: 'Регистрация завершена. Аккаунт создан.', loggedIn: 'Вход выполнен.',
       requiredName: 'Укажите имя или отображаемое имя.', invalidEmail: 'Введите корректный email.', invalidPassword: 'Пароль должен содержать от 8 до 128 символов.', mismatch: 'Пароли не совпадают.', consent: 'Сначала примите условия использования и политику конфиденциальности.',
-      EMAIL_EXISTS: 'Этот email уже зарегистрирован. Выполните вход.', INVALID_CREDENTIALS: 'Неверный email или пароль.', RATE_LIMITED: 'Слишком много попыток. Повторите позже.', VALIDATION_ERROR: 'Проверьте заполненные данные и повторите попытку.', ACCOUNT_DISABLED: 'Аккаунт не найден или отключён.',
-      SERVICE_PREPARING: 'Сервис аккаунтов пока готовится. Сейчас аккаунт не будет создан. Регистрация и вход откроются после запуска.', network: 'Не удалось подключиться к серверу. Проверьте сеть.', generic: 'Не удалось выполнить операцию. Повторите позже.', notSet: 'Не указано', chinese: '🇨🇳 中文', russian: '🇷🇺 Русский', loggingOut: 'Выход…'
+      EMAIL_EXISTS: 'Этот email уже зарегистрирован. Выполните вход.', INVALID_CREDENTIALS: 'Неверный email или пароль.', INVALID_CURRENT_PASSWORD: 'Неверный текущий пароль.', PASSWORD_UNCHANGED: 'Новый пароль должен отличаться от текущего.', ACCOUNT_CHANGED: 'Состояние аккаунта изменилось. Войдите снова.', DUPLICATE_RESOURCE: 'Этот номер телефона уже используется другим аккаунтом.', RATE_LIMITED: 'Слишком много попыток. Повторите позже.', VALIDATION_ERROR: 'Проверьте заполненные данные и повторите попытку.', ACCOUNT_DISABLED: 'Аккаунт не найден или отключён.', DEVICE_REVOKED: 'Это устройство отключено. Войдите снова.',
+      SERVICE_PREPARING: 'Сервис аккаунтов пока готовится. Сейчас аккаунт не будет создан. Регистрация и вход откроются после запуска.', network: 'Не удалось подключиться к серверу. Проверьте сеть.', generic: 'Не удалось выполнить операцию. Повторите позже.', notSet: 'Не указано', chinese: '🇨🇳 中文', russian: '🇷🇺 Русский', loggingOut: 'Выход…',
+      saving: 'Сохранение…', profileSaved: 'Профиль сохранён.', preferencesSaved: 'Предпочтения сохранены и синхронизированы с аккаунтом.', passwordChanged: 'Пароль изменён. Другие устройства отключены.', passwordMismatch: 'Новые пароли не совпадают.', passwordSame: 'Новый пароль должен отличаться от текущего.'
     }
   };
 
@@ -50,7 +57,7 @@
 
   function readSession() {
     const raw = storageGet(sessionStorage, storageKeys.session);
-    if (!raw || raw.length > 20_000) return null;
+    if (!raw || raw.length > 30_000) return null;
     try {
       const value = JSON.parse(raw);
       if (!value || typeof value.accessToken !== 'string' || typeof value.refreshToken !== 'string' || typeof value.deviceId !== 'string') return null;
@@ -86,10 +93,22 @@
     statusBox.hidden = !message;
   }
 
+  function showSettingsStatus(message, error = false) {
+    settingsStatus.textContent = message;
+    settingsStatus.classList.toggle('error', error);
+    settingsStatus.hidden = !message;
+  }
+
   function setBusy(busy, message = '') {
     submitButton.disabled = busy;
     document.querySelectorAll('[data-auth-mode], [data-switch-mode]').forEach((button) => { button.disabled = busy; });
     if (message) showStatus(message);
+  }
+
+  function setFormBusy(form, busy) {
+    form.querySelectorAll('button, input, select').forEach((control) => { control.disabled = busy; });
+    const button = form.querySelector('.settings-submit');
+    if (button) button.setAttribute('aria-busy', String(busy));
   }
 
   function apiError(code) {
@@ -140,13 +159,13 @@
     return refreshInFlight;
   }
 
-  async function authenticatedMe() {
+  async function authenticatedRequest(path, options = {}) {
     try {
-      return await apiRequest('/v1/auth/me', { accessToken: session.accessToken });
+      return await apiRequest(path, { ...options, accessToken: session.accessToken });
     } catch (error) {
-      if (error.status !== 401) throw error;
+      if (error.status !== 401 || error.code !== 'TOKEN_INVALID') throw error;
       const refreshed = await refreshSession();
-      return apiRequest('/v1/auth/me', { accessToken: refreshed.accessToken });
+      return apiRequest(path, { ...options, accessToken: refreshed.accessToken });
     }
   }
 
@@ -170,41 +189,81 @@
     globalThis.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
   }
 
-  function formValue(name, trim = true) {
-    const value = new FormData(authForm).get(name)?.toString() || '';
+  function formValue(form, name, trim = true) {
+    const value = new FormData(form).get(name)?.toString() || '';
     return trim ? value.trim() : value;
   }
 
-  function validateForm() {
+  function validateAuthForm() {
     const dictionary = currentMessages();
-    const email = formValue('email');
-    const password = formValue('password', false);
-    if (mode === 'register' && !formValue('displayName')) return dictionary.requiredName;
+    const email = formValue(authForm, 'email');
+    const password = formValue(authForm, 'password', false);
+    if (mode === 'register' && !formValue(authForm, 'displayName')) return dictionary.requiredName;
     if (!email || !document.querySelector('#account-email').validity.valid) return dictionary.invalidEmail;
     if (password.length < 8 || password.length > 128) return dictionary.invalidPassword;
-    if (mode === 'register' && password !== formValue('confirmPassword', false)) return dictionary.mismatch;
+    if (mode === 'register' && password !== formValue(authForm, 'confirmPassword', false)) return dictionary.mismatch;
     if (mode === 'register' && !document.querySelector('#account-consent').checked) return dictionary.consent;
     return '';
   }
 
-  function renderProfile(user) {
-    const dictionary = currentMessages();
-    const values = {
-      displayName: user?.displayName || dictionary.notSet,
-      email: user?.email || dictionary.notSet,
-      company: user?.company || dictionary.notSet,
-      preferredLanguage: user?.preferredLanguage === 'ru' ? dictionary.russian : dictionary.chinese,
-    };
-    document.querySelectorAll('[data-profile]').forEach((element) => {
-      element.textContent = values[element.dataset.profile] || dictionary.notSet;
-    });
+  function normalizedAvatar(value) {
+    return allowedAvatars.has(value) ? value : 'jade';
+  }
+
+  function avatarInitial(user) {
+    const text = user?.displayName?.trim();
+    return text ? Array.from(text)[0].toUpperCase() : (document.documentElement.lang === 'ru' ? 'Я' : '用');
+  }
+
+  function populateSettings(user) {
+    profileForm.elements.displayName.value = user?.displayName || '';
+    profileForm.elements.company.value = user?.company || '';
+    profileForm.elements.phone.value = user?.phone || '';
+    const language = user?.preferredLanguage === 'ru' ? 'ru' : 'zh';
+    const languageRadio = profileForm.querySelector(`[name="preferredLanguage"][value="${language}"]`);
+    if (languageRadio) languageRadio.checked = true;
+    const preset = normalizedAvatar(user?.avatarPreset);
+    const avatarRadio = profileForm.querySelector(`[name="avatarPreset"][value="${preset}"]`);
+    if (avatarRadio) avatarRadio.checked = true;
+    preferencesForm.elements.interfaceLanguage.value = ['zh', 'ru'].includes(user?.interfaceLanguage) ? user.interfaceLanguage : 'system';
+    preferencesForm.elements.autoPlayTranslationAudio.checked = user?.autoPlayTranslationAudio !== false;
+    const speed = [0.75, 1, 1.25, 1.5].includes(Number(user?.translationPlaybackSpeed)) ? String(user.translationPlaybackSpeed) : '1';
+    preferencesForm.elements.translationPlaybackSpeed.value = speed;
+  }
+
+  function renderProfile(user, { populate = true } = {}) {
+    document.querySelectorAll('[data-profile="displayName"]').forEach((element) => { element.textContent = user?.displayName || currentMessages().notSet; });
+    document.querySelectorAll('[data-profile="email"]').forEach((element) => { element.textContent = user?.email || currentMessages().notSet; });
+    const avatar = document.querySelector('[data-avatar-preview]');
+    const preset = normalizedAvatar(user?.avatarPreset);
+    avatar.className = `account-avatar avatar-${preset}`;
+    avatar.textContent = avatarInitial(user);
+    if (populate) populateSettings(user);
     authPanel.hidden = true;
     sessionPanel.hidden = false;
   }
 
+  function updateSessionUser(user) {
+    storeSession({ ...session, user });
+    renderProfile(user);
+  }
+
+  function setSettingsTab(tabName) {
+    const selectedTab = ['profile', 'preferences', 'security'].includes(tabName) ? tabName : 'profile';
+    document.querySelectorAll('[data-settings-tab]').forEach((button) => {
+      const selected = button.dataset.settingsTab === selectedTab;
+      button.setAttribute('aria-selected', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== selectedTab;
+    });
+    showSettingsStatus('');
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
-    const validationError = validateForm();
+    const validationError = validateAuthForm();
     if (validationError) {
       showStatus(validationError, true);
       return;
@@ -212,27 +271,117 @@
     setBusy(true, currentMessages().loading);
     const registration = mode === 'register';
     const body = {
-      email: formValue('email').toLowerCase(),
-      password: formValue('password', false),
+      email: formValue(authForm, 'email').toLowerCase(),
+      password: formValue(authForm, 'password', false),
       deviceId: deviceId(),
       platform: 'UNKNOWN',
       ...(registration ? {
-        displayName: formValue('displayName'),
-        ...(formValue('company') ? { company: formValue('company') } : {}),
-        preferredLanguage: formValue('preferredLanguage'),
+        displayName: formValue(authForm, 'displayName'),
+        ...(formValue(authForm, 'company') ? { company: formValue(authForm, 'company') } : {}),
+        preferredLanguage: formValue(authForm, 'preferredLanguage'),
       } : {}),
     };
     try {
       const data = await apiRequest(registration ? '/v1/auth/register' : '/v1/auth/login', { method: 'POST', body });
-      const nextSession = { accessToken: data.accessToken, refreshToken: data.refreshToken, deviceId: body.deviceId, user: data.user };
-      storeSession(nextSession);
+      storeSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, deviceId: body.deviceId, user: data.user });
       authForm.reset();
       renderProfile(data.user);
-      showStatus(registration ? currentMessages().registered : currentMessages().loggedIn);
+      showSettingsStatus(registration ? currentMessages().registered : currentMessages().loggedIn);
     } catch (error) {
       showStatus(error.message || currentMessages().generic, true);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    const displayName = formValue(profileForm, 'displayName');
+    if (!displayName) {
+      showSettingsStatus(currentMessages().requiredName, true);
+      return;
+    }
+    setFormBusy(profileForm, true);
+    showSettingsStatus(currentMessages().saving);
+    try {
+      const user = await authenticatedRequest('/v1/auth/profile', {
+        method: 'PATCH',
+        body: {
+          displayName,
+          company: formValue(profileForm, 'company') || null,
+          phone: formValue(profileForm, 'phone') || null,
+          preferredLanguage: formValue(profileForm, 'preferredLanguage'),
+          avatarPreset: formValue(profileForm, 'avatarPreset'),
+        },
+      });
+      updateSessionUser(user);
+      showSettingsStatus(currentMessages().profileSaved);
+    } catch (error) {
+      showSettingsStatus(error.message || currentMessages().generic, true);
+    } finally {
+      setFormBusy(profileForm, false);
+    }
+  }
+
+  async function savePreferences(event) {
+    event.preventDefault();
+    setFormBusy(preferencesForm, true);
+    showSettingsStatus(currentMessages().saving);
+    try {
+      const user = await authenticatedRequest('/v1/auth/profile', {
+        method: 'PATCH',
+        body: {
+          interfaceLanguage: formValue(preferencesForm, 'interfaceLanguage'),
+          autoPlayTranslationAudio: preferencesForm.elements.autoPlayTranslationAudio.checked,
+          translationPlaybackSpeed: Number(formValue(preferencesForm, 'translationPlaybackSpeed')),
+        },
+      });
+      updateSessionUser(user);
+      showSettingsStatus(currentMessages().preferencesSaved);
+      if (['zh', 'ru'].includes(user.interfaceLanguage)) {
+        const localeSelect = document.querySelector('.locale-select');
+        if (localeSelect.value !== user.interfaceLanguage) {
+          localeSelect.value = user.interfaceLanguage;
+          localeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+    } catch (error) {
+      showSettingsStatus(error.message || currentMessages().generic, true);
+    } finally {
+      setFormBusy(preferencesForm, false);
+    }
+  }
+
+  async function changePassword(event) {
+    event.preventDefault();
+    const currentPassword = formValue(changePasswordForm, 'currentPassword', false);
+    const newPassword = formValue(changePasswordForm, 'newPassword', false);
+    const confirmation = formValue(changePasswordForm, 'confirmNewPassword', false);
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      showSettingsStatus(currentMessages().invalidPassword, true);
+      return;
+    }
+    if (newPassword !== confirmation) {
+      showSettingsStatus(currentMessages().passwordMismatch, true);
+      return;
+    }
+    if (newPassword === currentPassword) {
+      showSettingsStatus(currentMessages().passwordSame, true);
+      return;
+    }
+    setFormBusy(changePasswordForm, true);
+    showSettingsStatus(currentMessages().saving);
+    try {
+      await authenticatedRequest('/v1/auth/password/change', {
+        method: 'POST',
+        body: { currentPassword, newPassword },
+      });
+      changePasswordForm.reset();
+      showSettingsStatus(currentMessages().passwordChanged);
+    } catch (error) {
+      showSettingsStatus(error.message || currentMessages().generic, true);
+    } finally {
+      setFormBusy(changePasswordForm, false);
     }
   }
 
@@ -241,10 +390,9 @@
     authPanel.hidden = false;
     showStatus(currentMessages().restoring);
     try {
-      const user = await authenticatedMe();
-      session.user = user;
-      storeSession(session);
-      renderProfile(user);
+      const user = await authenticatedRequest('/v1/auth/me');
+      updateSessionUser(user);
+      showStatus('');
     } catch (_) {
       clearSession();
       sessionPanel.hidden = true;
@@ -280,14 +428,23 @@
 
   document.querySelectorAll('[data-auth-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.authMode)));
   document.querySelectorAll('[data-switch-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.switchMode)));
+  document.querySelectorAll('[data-settings-tab]').forEach((button) => button.addEventListener('click', () => setSettingsTab(button.dataset.settingsTab)));
+  document.querySelectorAll('[name="avatarPreset"]').forEach((input) => input.addEventListener('change', () => {
+    const avatar = document.querySelector('[data-avatar-preview]');
+    avatar.className = `account-avatar avatar-${normalizedAvatar(input.value)}`;
+  }));
   document.querySelectorAll('.locale-select').forEach((select) => select.addEventListener('change', () => {
     showStatus('');
-    if (!sessionPanel.hidden && session?.user) renderProfile(session.user);
+    if (!sessionPanel.hidden && session?.user) renderProfile(session.user, { populate: false });
   }));
   authForm.addEventListener('submit', handleSubmit);
+  profileForm.addEventListener('submit', saveProfile);
+  preferencesForm.addEventListener('submit', savePreferences);
+  changePasswordForm.addEventListener('submit', changePassword);
   logoutButton.addEventListener('click', logout);
 
   const requestedMode = new URL(globalThis.location.href).searchParams.get('mode');
   setMode(globalThis.location.pathname === '/login' || requestedMode === 'login' ? 'login' : 'register');
+  setSettingsTab('profile');
   restore();
 })();

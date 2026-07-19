@@ -313,11 +313,28 @@ Guest Access Token 与正式账号使用同一短有效期（默认 15 分钟）
 {
   "displayName": "王经理",
   "phone": "+86 13800000000",
-  "avatarUrl": "https://cdn.example.com/avatar/user_123.jpg"
+  "avatarPreset": "jade",
+  "preferredLanguage": "zh",
+  "interfaceLanguage": "system",
+  "autoPlayTranslationAudio": true,
+  "translationPlaybackSpeed": 1.0
 }
 ```
 
-三个字段均可选但至少提供一个；`phone`/`avatarUrl` 可传 null 清空。成功返回不含凭据的 User。当前接口只接受已托管的 HTTPS 头像 URL，不负责上传文件。
+字段均可选但至少提供一个；`phone`/`company`/`avatarUrl` 可传 null 清空。`avatarPreset` 只接受 `jade`、`ocean`、`amber`、`plum`、`graphite`、`rose`；界面语言只接受 `system`、`zh`、`ru`；播放速度只接受 `0.75`、`1`、`1.25`、`1.5`。成功返回不含凭据的 User。外部 `avatarUrl` 仍只接受 HTTPS 托管地址，官网和 App 默认使用安全的内置头像主题。
+
+### `POST /auth/password/change`
+
+正式账号使用当前密码修改密码：
+
+```json
+{
+  "currentPassword": "current-password",
+  "newPassword": "new-password"
+}
+```
+
+两个密码均为 8 至 128 位，新旧密码不能相同。服务端验证当前密码后使用 CAS 更新密码哈希，保留当前设备会话并刷新其最近认证时间，同时撤销、清空并主动断开该账号的其他设备会话。错误当前密码返回 `INVALID_CURRENT_PASSWORD`，并发账号变化返回 `ACCOUNT_CHANGED`；接口按账号/IP 限速，Guest 返回 `FORMAL_ACCOUNT_REQUIRED`。
 
 ### `GET /auth/devices`
 

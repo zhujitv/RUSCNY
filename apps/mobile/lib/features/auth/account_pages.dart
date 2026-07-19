@@ -22,6 +22,7 @@ final class _ProfilePageState extends ConsumerState<ProfilePage> {
   final _phone = TextEditingController();
   final _company = TextEditingController();
   Language _preferredLanguage = Language.zh;
+  String _avatarPreset = 'jade';
   bool _saving = false;
 
   @override
@@ -32,6 +33,7 @@ final class _ProfilePageState extends ConsumerState<ProfilePage> {
     _phone.text = session?.phone ?? '';
     _company.text = session?.company ?? '';
     _preferredLanguage = session?.preferredLanguage ?? Language.zh;
+    _avatarPreset = session?.avatarPreset ?? 'jade';
   }
 
   @override
@@ -48,8 +50,36 @@ final class _ProfilePageState extends ConsumerState<ProfilePage> {
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            Center(
+              child: AccountAvatar(
+                displayName: _name.text,
+                preset: _avatarPreset,
+                radius: 38,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('个性化头像'.tr(context),
+                style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: avatarPresets
+                  .map(
+                    (preset) => ChoiceChip(
+                      avatar:
+                          CircleAvatar(backgroundColor: avatarColor(preset)),
+                      label: AppText(avatarPresetLabel(preset)),
+                      selected: _avatarPreset == preset,
+                      onSelected: (_) => setState(() => _avatarPreset = preset),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+            const SizedBox(height: 18),
             TextField(
               controller: _name,
+              onChanged: (_) => setState(() {}),
               decoration: InputDecoration(labelText: '姓名或显示名称 *'.tr(context)),
             ),
             const SizedBox(height: 12),
@@ -95,6 +125,7 @@ final class _ProfilePageState extends ConsumerState<ProfilePage> {
             phone: _phone.text,
             company: _company.text,
             preferredLanguage: _preferredLanguage,
+            avatarPreset: _avatarPreset,
           );
       if (mounted) Navigator.pop(context);
     } catch (error) {
@@ -109,6 +140,176 @@ final class _ProfilePageState extends ConsumerState<ProfilePage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: AppText(message)));
+    }
+  }
+}
+
+const avatarPresets = <String>[
+  'jade',
+  'ocean',
+  'amber',
+  'plum',
+  'graphite',
+  'rose',
+];
+
+Color avatarColor(String preset) => switch (preset) {
+      'ocean' => const Color(0xFF3F7898),
+      'amber' => const Color(0xFFB77C22),
+      'plum' => const Color(0xFF815783),
+      'graphite' => const Color(0xFF4B5955),
+      'rose' => const Color(0xFFA75E69),
+      _ => const Color(0xFF1B6B58),
+    };
+
+String avatarPresetLabel(String preset) => switch (preset) {
+      'ocean' => '海蓝',
+      'amber' => '琥珀',
+      'plum' => '梅紫',
+      'graphite' => '墨灰',
+      'rose' => '霞红',
+      _ => '玉绿',
+    };
+
+final class AccountAvatar extends StatelessWidget {
+  const AccountAvatar({
+    super.key,
+    required this.displayName,
+    required this.preset,
+    this.radius = 24,
+  });
+
+  final String? displayName;
+  final String preset;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = displayName?.trim() ?? '';
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: avatarColor(preset),
+      child: Text(
+        value.isEmpty
+            ? '用'.tr(context)
+            : String.fromCharCode(value.runes.first).toUpperCase(),
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: radius * .78,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+final class ChangePasswordPage extends ConsumerStatefulWidget {
+  const ChangePasswordPage({super.key});
+
+  @override
+  ConsumerState<ChangePasswordPage> createState() => _ChangePasswordPageState();
+}
+
+final class _ChangePasswordPageState extends ConsumerState<ChangePasswordPage> {
+  final _current = TextEditingController();
+  final _next = TextEditingController();
+  final _confirm = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _next.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const AppText('修改密码')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const AppText('修改成功后，除当前设备外的其他登录设备会立即下线。'),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _current,
+                      obscureText: true,
+                      autofillHints: const [AutofillHints.password],
+                      decoration:
+                          InputDecoration(labelText: '当前密码'.tr(context)),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _next,
+                      obscureText: true,
+                      autofillHints: const [AutofillHints.newPassword],
+                      decoration: InputDecoration(labelText: '新密码'.tr(context)),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _confirm,
+                      obscureText: true,
+                      autofillHints: const [AutofillHints.newPassword],
+                      decoration:
+                          InputDecoration(labelText: '再次输入新密码'.tr(context)),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      onPressed: _saving ? null : _save,
+                      child: AppText(_saving ? '修改中…' : '修改密码'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Future<void> _save() async {
+    if (_current.text.length < 8 || _next.text.length < 8) {
+      _snack('密码至少需要 8 位');
+      return;
+    }
+    if (_next.text != _confirm.text) {
+      _snack('两次输入的新密码不一致');
+      return;
+    }
+    if (_current.text == _next.text) {
+      _snack('新密码不能与当前密码相同');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await ref.read(authRepositoryProvider).changePassword(
+            currentPassword: _current.text,
+            newPassword: _next.text,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: const AppText('密码已修改，其他设备已下线')),
+        );
+        Navigator.pop(context);
+      }
+    } catch (error) {
+      _snack(readableError(error));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _snack(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: AppText(message)),
+      );
     }
   }
 }

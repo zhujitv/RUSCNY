@@ -125,6 +125,7 @@ final class AuthRepository {
     String? phone,
     String? company,
     Language? preferredLanguage,
+    String? avatarPreset,
   }) async {
     final payload = await _api.patchMap(
       '/auth/profile',
@@ -135,9 +136,23 @@ final class AuthRepository {
           'company': company.trim().isEmpty ? null : company.trim(),
         if (preferredLanguage != null)
           'preferredLanguage': preferredLanguage.code,
+        if (avatarPreset != null) 'avatarPreset': avatarPreset,
       },
     );
     return AuthSession.fromJson(payload);
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _api.postMap(
+      '/auth/password/change',
+      data: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      },
+    );
   }
 
   Future<List<LoginDevice>> devices() async {

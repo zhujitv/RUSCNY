@@ -115,6 +115,10 @@ final class AuthSession {
     this.phone,
     this.company,
     this.preferredLanguage = Language.zh,
+    this.avatarPreset = 'jade',
+    this.interfaceLanguage = 'system',
+    this.autoPlayTranslationAudio = true,
+    this.translationPlaybackSpeed = 1,
     this.currentConversationId,
   });
 
@@ -125,6 +129,10 @@ final class AuthSession {
   final String? phone;
   final String? company;
   final Language preferredLanguage;
+  final String avatarPreset;
+  final String interfaceLanguage;
+  final bool autoPlayTranslationAudio;
+  final double translationPlaybackSpeed;
   final String? currentConversationId;
 
   factory AuthSession.fromJson(Map<String, dynamic> json) {
@@ -140,11 +148,39 @@ final class AuthSession {
       preferredLanguage: _language(
         user['preferredLanguage'] ?? json['preferredLanguage'],
       ),
+      avatarPreset: _avatarPreset(user['avatarPreset']),
+      interfaceLanguage: _interfaceLanguage(user['interfaceLanguage']),
+      autoPlayTranslationAudio: user['autoPlayTranslationAudio'] != false,
+      translationPlaybackSpeed:
+          _playbackSpeed(user['translationPlaybackSpeed']),
       currentConversationId: _optionalString(
         json['conversationId'] ?? user['conversationId'],
       ),
     );
   }
+}
+
+String _avatarPreset(dynamic value) => const {
+      'jade',
+      'ocean',
+      'amber',
+      'plum',
+      'graphite',
+      'rose',
+    }.contains(value?.toString())
+        ? value.toString()
+        : 'jade';
+
+String _interfaceLanguage(dynamic value) =>
+    const {'zh', 'ru'}.contains(value?.toString())
+        ? value.toString()
+        : 'system';
+
+double _playbackSpeed(dynamic value) {
+  final parsed = value is num
+      ? value.toDouble()
+      : double.tryParse(value?.toString() ?? '');
+  return const {0.75, 1.0, 1.25, 1.5}.contains(parsed) ? parsed! : 1;
 }
 
 final class Contact {

@@ -28,6 +28,14 @@ import { logoutGuestSession, refreshGuestSession } from '../services/guest-sessi
 const RECENT_AUTH_WINDOW_MS = 10 * 60 * 1_000;
 const DELETED_USER_NAME = 'Deleted user';
 const DELETED_GUEST_NAME = 'Deleted guest';
+const avatarPreset = z.enum(['jade', 'ocean', 'amber', 'plum', 'graphite', 'rose']);
+const interfaceLanguage = z.enum(['system', 'zh', 'ru']);
+const translationPlaybackSpeed = z.union([
+  z.literal(0.75),
+  z.literal(1),
+  z.literal(1.25),
+  z.literal(1.5),
+]);
 
 const guestPrincipalHash = (token: string) =>
   secretHash(`guest-principal-v1:${token}`, config.PASSWORD_PEPPER);
@@ -81,6 +89,12 @@ async function issueUserSession(user: {
   email: string | null;
   company: string | null;
   preferredLanguage: 'zh' | 'ru' | 'en';
+  phone?: string | null;
+  avatarUrl?: string | null;
+  avatarPreset?: string;
+  interfaceLanguage?: string;
+  autoPlayTranslationAudio?: boolean;
+  translationPlaybackSpeed?: number;
 }, deviceId: string, platform: 'ANDROID' | 'IOS' | 'UNKNOWN') {
   const authenticatedAt = new Date();
   const sessionId = randomUUID();
@@ -170,6 +184,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         email: true,
         company: true,
         preferredLanguage: true,
+        phone: true,
+        avatarUrl: true,
+        avatarPreset: true,
+        interfaceLanguage: true,
+        autoPlayTranslationAudio: true,
+        translationPlaybackSpeed: true,
       },
     });
     await seedDefaultGlossary(user.id);
@@ -202,6 +222,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
           email: user.email,
           company: user.company,
           preferredLanguage: user.preferredLanguage,
+          phone: user.phone,
+          avatarUrl: user.avatarUrl,
+          avatarPreset: user.avatarPreset,
+          interfaceLanguage: user.interfaceLanguage,
+          autoPlayTranslationAudio: user.autoPlayTranslationAudio,
+          translationPlaybackSpeed: user.translationPlaybackSpeed,
         },
         body.deviceId,
         body.platform,
@@ -543,6 +569,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
           email: device.user.email,
           company: device.user.company,
           preferredLanguage: device.user.preferredLanguage,
+          phone: device.user.phone,
+          avatarUrl: device.user.avatarUrl,
+          avatarPreset: device.user.avatarPreset,
+          interfaceLanguage: device.user.interfaceLanguage,
+          autoPlayTranslationAudio: device.user.autoPlayTranslationAudio,
+          translationPlaybackSpeed: device.user.translationPlaybackSpeed,
         },
       },
     };
@@ -576,6 +608,11 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         phone: true,
         company: true,
         preferredLanguage: true,
+        avatarUrl: true,
+        avatarPreset: true,
+        interfaceLanguage: true,
+        autoPlayTranslationAudio: true,
+        translationPlaybackSpeed: true,
       },
     });
     return { ok: true, data: user };
@@ -592,6 +629,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         company: safeIdentityText(0, 200).nullable().optional(),
         preferredLanguage: z.enum(['zh', 'ru']).optional(),
         avatarUrl: managedAvatarUrl.nullable().optional(),
+        avatarPreset: avatarPreset.optional(),
+        interfaceLanguage: interfaceLanguage.optional(),
+        autoPlayTranslationAudio: z.boolean().optional(),
+        translationPlaybackSpeed: translationPlaybackSpeed.optional(),
       })
       .refine((value) => Object.keys(value).length > 0, '至少提供一个要修改的字段')
       .parse(request.body);
@@ -613,10 +654,106 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         company: true,
         preferredLanguage: true,
         avatarUrl: true,
+        avatarPreset: true,
+        interfaceLanguage: true,
+        autoPlayTranslationAudio: true,
+        translationPlaybackSpeed: true,
       },
     });
     return { ok: true, data: user };
   });
+
+  app.post(
+    '/v1/auth/password/change',
+    {
+      preHandler: authenticate,
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (request) => {
+      if (request.auth.role === 'GUEST') {
+        throw forbidden('FORMAL_ACCOUNT_REQUIRED', '访客身份不能修改密码');
+      }
+      const body = z
+        .object({
+          currentPassword: z.string().min(8).max(128),
+          newPassword: z.string().min(8).max(128),
+        })
+        .strict()
+        .parse(request.body);
+      if (body.currentPassword === body.newPassword) {
+        throw conflict('PASSWORD_UNCHANGED', '新密码不能与当前密码相同');
+      }
+
+      const account = await prisma.user.findUnique({
+        where: { id: request.auth.subjectId },
+        select: { status: true, passwordHash: true },
+      });
+      if (!account?.passwordHash || account.status !== 'ACTIVE') {
+        throw unauthorized('ACCOUNT_DISABLED', '账号不存在或已停用');
+      }
+      const verified = await verifyPassword(
+        body.currentPassword,
+        account.passwordHash,
+        config.PASSWORD_PEPPER,
+      );
+      if (!verified.valid) {
+        throw unauthorized('INVALID_CURRENT_PASSWORD', '当前密码错误');
+      }
+
+      const newPasswordHash = await hashPassword(body.newPassword, config.PASSWORD_PEPPER);
+      const changedAt = new Date();
+      const otherDeviceIds = await prisma.$transaction(async (tx) => {
+        const changed = await tx.user.updateMany({
+          where: {
+            id: request.auth.subjectId,
+            status: 'ACTIVE',
+            passwordHash: account.passwordHash,
+          },
+          data: { passwordHash: newPasswordHash },
+        });
+        if (changed.count !== 1) {
+          throw conflict('ACCOUNT_CHANGED', '账号状态已发生变化，请重新登录后再试');
+        }
+        const otherDevices = await tx.userDevice.findMany({
+          where: {
+            userId: request.auth.subjectId,
+            deviceId: { not: request.auth.deviceId },
+            revokedAt: null,
+          },
+          select: { deviceId: true },
+        });
+        await tx.userDevice.updateMany({
+          where: {
+            userId: request.auth.subjectId,
+            deviceId: { not: request.auth.deviceId },
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: changedAt,
+            refreshTokenHash: null,
+            refreshTokenJti: null,
+          },
+        });
+        await tx.userDevice.updateMany({
+          where: {
+            userId: request.auth.subjectId,
+            deviceId: request.auth.deviceId,
+            sessionId: request.auth.sessionId,
+            revokedAt: null,
+          },
+          data: { authenticatedAt: changedAt },
+        });
+        return otherDevices.map((device) => device.deviceId);
+      });
+      for (const deviceId of otherDeviceIds) {
+        realtimeHub().disconnectDevice(request.auth.subjectId, deviceId);
+      }
+      return {
+        ok: true,
+        data: { changedAt, revokedOtherDeviceCount: otherDeviceIds.length },
+      };
+    },
+  );
 
   app.get('/v1/auth/devices', { preHandler: authenticate }, async (request) => {
     if (request.auth.role === 'GUEST') {

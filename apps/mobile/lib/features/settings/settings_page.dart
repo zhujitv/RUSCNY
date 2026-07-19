@@ -26,8 +26,9 @@ final class SettingsPage extends ConsumerWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.person_outline),
+                  leading: AccountAvatar(
+                    displayName: session?.displayName,
+                    preset: session?.avatarPreset ?? 'jade',
                   ),
                   title: AppText(
                     session?.displayName ?? '用户',
@@ -50,6 +51,19 @@ final class SettingsPage extends ConsumerWidget {
                           ),
                 ),
                 if (session?.role != UserRole.guest) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.lock_outline),
+                    title: const AppText('修改密码'),
+                    subtitle: const AppText('更新密码并让其他设备安全下线'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ChangePasswordPage(),
+                      ),
+                    ),
+                  ),
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.devices_outlined),

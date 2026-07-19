@@ -107,6 +107,8 @@ test('account page submits the complete registered-user profile to same-origin a
   assert.match(source, /'\/v1\/auth\/login'/);
   assert.match(source, /'\/v1\/auth\/refresh'/);
   assert.match(source, /'\/v1\/auth\/logout'/);
+  assert.match(source, /'\/v1\/auth\/profile'/);
+  assert.match(source, /'\/v1\/auth\/password\/change'/);
   assert.match(source, /SERVICE_PREPARING/);
   assert.match(source, /storageSet\(sessionStorage, storageKeys\.session/);
   assert.match(source, /storageSet\(localStorage, storageKeys\.device/);
@@ -118,7 +120,35 @@ test('account client keeps bearer credentials out of persistent storage and unsa
   assert.doesNotMatch(source, /storageSet\(localStorage,\s*storageKeys\.session/);
   assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML|eval\s*\(/);
   assert.doesNotMatch(source, /console\.(?:log|info|debug|error)/);
-  assert.match(source, /element\.textContent = values/);
+  assert.match(source, /element\.textContent = user\?\.displayName/);
+  assert.match(source, /avatar\.textContent = avatarInitial\(user\)/);
+});
+
+test('signed-in account management includes profile, preferences, avatar and password security', async () => {
+  const [page, source] = await Promise.all([
+    readFile(new URL('account.html', directory), 'utf8'),
+    readFile(new URL('account.js', directory), 'utf8'),
+  ]);
+
+  for (const panel of ['profile', 'preferences', 'security']) {
+    assert.match(page, new RegExp(`data-settings-panel="${panel}"`));
+  }
+  for (const field of [
+    'avatarPreset',
+    'phone',
+    'interfaceLanguage',
+    'autoPlayTranslationAudio',
+    'translationPlaybackSpeed',
+    'currentPassword',
+    'newPassword',
+    'confirmNewPassword',
+  ]) {
+    assert.match(page, new RegExp(`name="${field}"`), `${field} setting is missing`);
+  }
+  assert.match(source, /sessionStorage/);
+  assert.match(source, /INVALID_CURRENT_PASSWORD/);
+  assert.match(source, /PASSWORD_UNCHANGED/);
+  assert.doesNotMatch(source, /localStorage[^\n]*accessToken|localStorage[^\n]*refreshToken/);
 });
 
 test('social preview has the expected link-unfurl dimensions', async () => {

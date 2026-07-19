@@ -94,12 +94,14 @@ final class AuthController extends AsyncNotifier<AuthSession?> {
     String? phone,
     String? company,
     Language? preferredLanguage,
+    String? avatarPreset,
   }) async {
     final updated = await ref.read(authRepositoryProvider).updateProfile(
           displayName: displayName,
           phone: phone,
           company: company,
           preferredLanguage: preferredLanguage,
+          avatarPreset: avatarPreset,
         );
     state = AsyncData(updated);
   }

@@ -147,6 +147,10 @@ model User {
   email                              String?                    @unique
   passwordHash                       String?
   avatarUrl                          String?
+  avatarPreset                       String                     @default("jade")
+  interfaceLanguage                  String                     @default("system")
+  autoPlayTranslationAudio           Boolean                    @default(true)
+  translationPlaybackSpeed           Float                      @default(1)
   status                             UserStatus                 @default(ACTIVE)
   deletedAt                          DateTime?
   legalPolicyVersion                 String?

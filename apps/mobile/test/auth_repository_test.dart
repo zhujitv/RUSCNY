@@ -122,6 +122,68 @@ void main() {
     expect(await tokenStore.readRefreshToken(), 'user-refresh');
   });
 
+  test('profile avatar and password changes use authenticated account APIs',
+      () async {
+    final tokenStore = SecureTokenStore();
+    final requests = <String, Map<String, dynamic>>{};
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test/v1'));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests[options.path] =
+              (options.data as Map).cast<String, dynamic>();
+          handler.resolve(
+            Response<dynamic>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'ok': true,
+                'data': options.path.endsWith('/auth/profile')
+                    ? {
+                        'id': 'user-1',
+                        'role': 'USER',
+                        'displayName': '王伟',
+                        'avatarPreset': 'ocean',
+                      }
+                    : <String, dynamic>{},
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final repository = AuthRepository(
+      ApiClient(
+        baseUrl: 'https://api.example.test/v1',
+        tokenStore: tokenStore,
+        dio: dio,
+      ),
+      tokenStore,
+    );
+
+    final session = await repository.updateProfile(
+      displayName: '王伟',
+      avatarPreset: 'ocean',
+    );
+    await repository.changePassword(
+      currentPassword: 'current-password',
+      newPassword: 'different-password',
+    );
+
+    final profileRequest = requests.entries
+        .singleWhere((entry) => entry.key.endsWith('/auth/profile'))
+        .value;
+    final passwordRequest = requests.entries
+        .singleWhere((entry) => entry.key.endsWith('/auth/password/change'))
+        .value;
+    expect(session.avatarPreset, 'ocean');
+    expect(profileRequest['avatarPreset'], 'ocean');
+    expect(passwordRequest, {
+      'currentPassword': 'current-password',
+      'newPassword': 'different-password',
+    });
+  });
+
   test('only explicit guest deletion clears the principal token', () async {
     final tokenStore = SecureTokenStore();
     await tokenStore.writeGuestPrincipalToken('principal-token');

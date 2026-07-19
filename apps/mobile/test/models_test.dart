@@ -2,6 +2,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tooyei_translator/core/models.dart';
 
 void main() {
+  test('registered account parses avatar and synchronized preferences', () {
+    final session = AuthSession.fromJson({
+      'id': 'user-1',
+      'role': 'USER',
+      'displayName': '王伟',
+      'avatarPreset': 'plum',
+      'interfaceLanguage': 'ru',
+      'autoPlayTranslationAudio': false,
+      'translationPlaybackSpeed': 1.25,
+    });
+
+    expect(session.avatarPreset, 'plum');
+    expect(session.interfaceLanguage, 'ru');
+    expect(session.autoPlayTranslationAudio, isFalse);
+    expect(session.translationPlaybackSpeed, 1.25);
+  });
+
   test('translation.final event parses required isolation fields', () {
     final message = TranslationMessage.fromJson({
       'type': 'translation.final',
