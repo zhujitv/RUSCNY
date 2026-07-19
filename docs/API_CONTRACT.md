@@ -616,16 +616,21 @@ DELETE /glossary/:id
 ```http
 POST /v1/conversations/:conversationId/summary
 GET  /v1/conversations/:conversationId/summary
+POST /v1/conversations/:conversationId/summary/approve
 GET  /v1/conversations/:conversationId/summary/email-recipients
 POST /v1/conversations/:conversationId/summary/email-distributions
 GET  /v1/conversations/:conversationId/summary/email-distributions/:distributionId
 ```
 
-GET 允许所有仍有历史权限的 Participant，且严格只读；POST 仅会议 owner，并且只允许状态为 `ENDED` 的会议，活动会议返回 `SUMMARY_REQUIRES_ENDED_CONVERSATION`。授权、Conversation 状态校验、来源消息读取和 upsert 在同一个 Conversation 首锁事务中完成。服务端只查询该 conversationId 的 FINAL 消息，`participantRoster` 从 Participant 生成，`coreDiscussion` 固定从不可变 Message 发言人快照生成，客户端不能提交或替换这两类身份数据。
+GET 允许所有仍有历史权限的 Participant，且严格只读；写接口仅会议 owner，并且只允许状态为 `ENDED` 的会议，活动会议返回 `SUMMARY_REQUIRES_ENDED_CONVERSATION`。服务端只查询该 conversationId 的 FINAL 消息，`participantRoster` 从 Participant 生成，`coreDiscussion` 固定从服务端 Message 发言人快照生成，客户端不能提交或替换这两类身份数据。
 
-POST 只接受可选 `summary`，以及严格结构的 `partyViews`、`confirmedItems`、`actionItems` 和 `openQuestions`。每项必须通过 `sourceSequences` 引用本会议存在的发言；`partyViews.participantId` 必须与被引用消息的实际发言人一致，`actionItems.assigneeParticipantId` 必须是本会议 Participant。保存时服务端为注释补全发言人/负责人姓名、公司和原始消息快照；多余字段、伪造 participantId 或不存在的 sequence 返回 400。每次保存同时记录 `sourceMaxSequence`、`sourceMessageCount`、`sourceLatestMessageUpdatedAt` 并递增 `revision`；GET 返回 `isStale`。消息数量/序号未变但确认纠错更新了原文或译文时也会立即标记过期；旧迁移数据因没有可信来源边界时返回 `null`，不能伪报为最新。移动端查看使用 GET，只有主持人明确确认“生成或更新”才调用 POST。未接入生产 AI 摘要 provider 时，默认 `summary` 是可解释的会议标题/发言数统计，不冒充 AI 生成结论。禁止默认合并同一天会议。
+空 JSON body 的 POST 表示 AI 生成，并强制 8–200 字符 `Idempotency-Key`；非空且通过严格结构校验的 body 表示主持人人工修订，不调用外部模型。AI 路径先在事务内取得当前会议、Participant 和最终消息快照，再以消息/参会者版本、模型和 prompt 版本生成 `sourceHash`，持久化 `SummaryGeneration` 任务后才调用 provider，最后在新的事务内重新验证权限、会议状态和所有来源版本后保存。相同幂等键重试返回同一结果；同一来源只允许一个活动任务；超时任务可被安全接管；账号每分钟最多创建 5 个任务。生产使用阿里云百炼通义千问，开发环境可使用确定性 mock。
 
-邮件收件人和分发接口仅允许该会议 owner。收件人接口从服务端 Participant → User/GuestIdentity 关系解析邮箱，只返回脱敏 `emailHint`、`eligible/reason`；普通参会者名单和分发结果都不返回完整邮箱。被移出、账号删除/停用、访客撤销、历史权限过期或没有邮箱的 Participant 不可选择。分发只允许 `ENDED` 会议且纪要来源边界必须与当前 FINAL 消息完全一致，否则返回 `SUMMARY_STALE`。POST body 为 `{ "participantIds": ["participant_123"] }`，并强制 `Idempotency-Key` header；相同键的并发请求收敛到同一任务，换纪要或换收件人则返回 `IDEMPOTENCY_KEY_REUSED`。
+模型必须返回 `summary`、`summarySourceSequences`、`partyViews`、`confirmedItems`、`actionItems` 和 `openQuestions`，每项通过 `sourceSequences` 引用本会议存在的发言。`partyViews.participantId` 必须与被引用消息的实际发言人一致，`actionItems.assigneeParticipantId` 必须是本会议 Participant；无明确负责人或日期时不得推测。保存时服务端补全发言人/负责人姓名、公司和来源消息快照，并记录生成方式、provider、model、prompt 版本、供应商 request id、token 用量、请求人和来源 hash；多余字段、伪造 participantId 或不存在的 sequence 返回 400。整理期间内容变化返回 `SUMMARY_SOURCE_CHANGED`，绝不把旧结果标记为最新。每次保存同时记录来源边界并递增 `revision`，同时清除旧批准；GET 返回 `isStale`。移动端查看使用 GET，只有主持人明确选择“生成或更新”才调用 POST。禁止默认合并同一天会议。
+
+AI 结果和人工修订均先作为当前 revision 草稿保存。主持人复核后使用 `POST /summary/approve`，body 为 `{ "revision": 3 }`；服务端只批准当前且未过期的 revision，并记录批准人和时间。旧版缺少可靠来源边界的纪要不能批准。注册与登录、临时参会会记录当前 `LEGAL_POLICY_VERSION` 的接受版本；版本不一致的主持人在重新确认政策前不能发起 AI 整理。
+
+邮件收件人和分发接口仅允许该会议 owner。收件人接口从服务端 Participant → User/GuestIdentity 关系解析邮箱，只返回脱敏 `emailHint`、`eligible/reason` 和当前 revision 是否已批准；普通参会者名单和分发结果都不返回完整邮箱。被移出、账号删除/停用、访客撤销、历史权限过期或没有邮箱的 Participant 不可选择。分发只允许 `ENDED` 会议，且纪要必须是来源未过期并由主持人批准的当前 revision；否则返回 `SUMMARY_STALE` 或 `SUMMARY_APPROVAL_REQUIRED`。POST body 为 `{ "participantIds": ["participant_123"] }`，并强制 `Idempotency-Key` header；相同键的并发请求收敛到同一任务，换纪要或换收件人则返回 `IDEMPOTENCY_KEY_REUSED`。
 
 POST 只持久化任务并返回 `PROCESSING`，不会在一个长 HTTP 请求内等待所有邮件；服务端多实例安全 worker 从 PostgreSQL 扫描任务，逐人调用邮件供应商，绝不把多个地址放入同一 To/CC。App 使用 distribution GET 轮询 `PROCESSING | COMPLETED | PARTIAL_FAILURE | FAILED`、成功/失败数量及每位收件人的脱敏结果。worker 启动、每封邮件发送前都会重验纪要来源、Participant、账号/访客关系和邮箱；排队期间出现纠错、移出、撤销或邮箱变化时直接失败且不发旧内容。供应商接受仅表示已受理，不等于最终送达；退信/投诉 webhook 属于生产运营后续校验。供应商调用使用稳定的逐收件人幂等键；结果不明的陈旧 claim 超出安全窗口后标记人工确认，禁止自动重放。
 
@@ -764,6 +769,18 @@ POST  /v1/auth/password/reset
 | `EMAIL_EXISTS` | 409 | 邮箱已注册 |
 | `ROOM_ENDED` | 409 | 已结束会议不能轮换邀请或恢复写入 |
 | `SUMMARY_REQUIRES_ENDED_CONVERSATION` | 409 | 只有已结束会议可以生成最终会议纪要 |
+| `SUMMARY_SOURCE_CHANGED` | 409 | AI 整理期间消息或参会者资料发生变化，结果未保存，需重新生成 |
+| `IDEMPOTENCY_KEY_REQUIRED` | 400 | AI 生成缺少有效 `Idempotency-Key` |
+| `SUMMARY_GENERATION_IN_PROGRESS` | 409 | 相同会议来源已有未超时的生成任务 |
+| `SUMMARY_GENERATION_RATE_LIMITED` | 429 | 当前账号一分钟内生成任务过多 |
+| `IDEMPOTENCY_RESULT_REPLACED` | 409 | 幂等键对应的旧生成结果已被新 revision 替换 |
+| `LEGAL_POLICY_REACCEPT_REQUIRED` | 409 | 主持人尚未接受当前 AI 处理政策版本 |
+| `SUMMARY_REVISION_CONFLICT` | 409 | 要批准的 revision 已被更新 |
+| `SUMMARY_APPROVAL_REQUIRED` | 409 | 当前纪要 revision 尚未由主持人确认，不能邮件分发 |
+| `SUMMARY_TRANSCRIPT_TOO_LARGE` | 413 | 单场会议超过当前 AI 整理的消息数或字符上限 |
+| `SUMMARY_PROVIDER_TIMEOUT` | 504 | AI 会议纪要服务响应超时，结果未保存 |
+| `SUMMARY_PROVIDER_RATE_LIMITED` | 429 | AI 会议纪要服务限流，可稍后重新生成 |
+| `SUMMARY_PROVIDER_INVALID_RESPONSE` | 502 | AI 输出格式、来源序号、发言人或负责人校验失败，结果未保存 |
 | `SUMMARY_EMAIL_REQUIRES_ENDED_CONVERSATION` | 409 | 只有已结束会议可以邮件分发最终纪要 |
 | `SUMMARY_STALE` | 409 | 纪要来源版本落后于当前最终消息，必须重新生成 |
 | `SUMMARY_EMAIL_RECIPIENT_INELIGIBLE` | 400 | 收件人不属于会议、无邮箱或当前无纪要访问权 |

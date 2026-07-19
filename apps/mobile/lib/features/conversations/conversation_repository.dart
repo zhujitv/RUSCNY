@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/models.dart';
@@ -204,6 +205,24 @@ final class ConversationRepository {
     final payload = await _api.postMap(
       '/conversations/${Uri.encodeComponent(conversationId)}/summary',
       data: const <String, dynamic>{},
+      options: Options(
+        receiveTimeout: const Duration(seconds: 130),
+        headers: {'Idempotency-Key': const Uuid().v4()},
+      ),
+    );
+    final nested = payload['summary'];
+    return MeetingSummary.fromJson(
+      nested is Map ? nested.cast<String, dynamic>() : payload,
+    );
+  }
+
+  Future<MeetingSummary> approveSummary(
+    String conversationId,
+    int revision,
+  ) async {
+    final payload = await _api.postMap(
+      '/conversations/${Uri.encodeComponent(conversationId)}/summary/approve',
+      data: {'revision': revision},
     );
     final nested = payload['summary'];
     return MeetingSummary.fromJson(
@@ -215,6 +234,7 @@ final class ConversationRepository {
       ({
         int summaryRevision,
         bool isStale,
+        bool isApproved,
         List<SummaryEmailRecipientCandidate> items
       })> summaryEmailRecipients(String conversationId) async {
     final payload = await _api.getMap(
@@ -224,6 +244,7 @@ final class ConversationRepository {
     return (
       summaryRevision: (payload['summaryRevision'] as num?)?.toInt() ?? 0,
       isStale: payload['isStale'] == true,
+      isApproved: payload['isApproved'] == true,
       items: rows
           .whereType<Map>()
           .map((item) => SummaryEmailRecipientCandidate.fromJson(

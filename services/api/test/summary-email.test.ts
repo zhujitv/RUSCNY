@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     contentUpdated: false,
     revokeBeforeSend: false,
     createConflictOnce: false,
+    approved: true,
     distribution: null as null | Record<string, any>,
     recipients: [] as Array<Record<string, any>>,
   };
@@ -31,7 +32,8 @@ const mocks = vi.hoisted(() => {
     customerRequirements: [], products: [], specifications: [], quantity: [], price: [],
     delivery: [], paymentTerms: [], sourceMaxSequence: 1, sourceMessageCount: 1,
     sourceLatestMessageUpdatedAt: new Date('2026-07-18T23:59:00Z'),
-    revision: 2, generatedAt: new Date('2026-07-19T00:00:00Z'),
+    revision: 2, approvedRevision: 2, approvedAt: new Date('2026-07-19T00:00:10Z'),
+    generatedAt: new Date('2026-07-19T00:00:00Z'),
   };
   const participants = [
     {
@@ -57,7 +59,11 @@ const mocks = vi.hoisted(() => {
     },
   ];
   const transaction = {
-    conversationSummary: { findUnique: vi.fn(async () => summary) },
+    conversationSummary: {
+      findUnique: vi.fn(async () => state.approved
+        ? summary
+        : { ...summary, approvedRevision: null, approvedAt: null }),
+    },
     participant: { findMany: vi.fn(async () => participants) },
     translationMessage: { aggregate: vi.fn(async () => ({
       _max: {
@@ -101,7 +107,11 @@ const mocks = vi.hoisted(() => {
   };
   const prisma = {
     $transaction: vi.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
-    conversationSummary: { findUnique: vi.fn(async () => summary) },
+    conversationSummary: {
+      findUnique: vi.fn(async () => state.approved
+        ? summary
+        : { ...summary, approvedRevision: null, approvedAt: null }),
+    },
     translationMessage: {
       aggregate: vi.fn(async () => ({
         _max: {
@@ -207,6 +217,7 @@ beforeEach(async () => {
   mocks.state.contentUpdated = false;
   mocks.state.revokeBeforeSend = false;
   mocks.state.createConflictOnce = false;
+  mocks.state.approved = true;
   mocks.state.distribution = null;
   mocks.state.recipients = [];
   app = Fastify({ logger: false });
@@ -293,6 +304,19 @@ describe('meeting summary email distribution', () => {
     });
     expect(response.statusCode).toBe(409);
     expect(response.json().code).toBe('SUMMARY_STALE');
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('rejects an AI draft until the host approves its current revision', async () => {
+    mocks.state.approved = false;
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/v1/conversations/conversation-a/summary/email-distributions',
+      headers: { 'idempotency-key': 'distribution-request-unapproved' },
+      payload: { participantIds: ['participant-host'] },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().code).toBe('SUMMARY_APPROVAL_REQUIRED');
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 

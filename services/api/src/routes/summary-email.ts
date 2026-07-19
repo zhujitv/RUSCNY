@@ -99,6 +99,7 @@ export async function registerSummaryEmailRoutes(app: FastifyInstance): Promise<
         return {
           summaryRevision: summary.revision,
           isStale: summaryIsStale(summary, sourceState),
+          isApproved: summary.approvedRevision === summary.revision && summary.approvedAt !== null,
           items: participants.map((participant) =>
             recipientCandidateDto(recipientCandidate(participant))),
         };
@@ -158,6 +159,9 @@ export async function registerSummaryEmailRoutes(app: FastifyInstance): Promise<
         if (!summary) throw notFound('SUMMARY_NOT_FOUND', '会议纪要尚未生成');
         if (summaryIsStale(summary, sourceState)) {
           throw conflict('SUMMARY_STALE', '会议内容已变化，请重新生成会议纪要后再发送');
+        }
+        if (summary.approvedRevision !== summary.revision || !summary.approvedAt) {
+          throw conflict('SUMMARY_APPROVAL_REQUIRED', '请先查看并确认当前会议纪要，再进行邮件分发');
         }
 
         const candidates = participants.map((participant) => recipientCandidate(participant));
@@ -349,6 +353,18 @@ export async function processSummaryEmailDistribution(
     await finalizeDistribution(distributionId);
     return;
   }
+  if (summary.approvedRevision !== summary.revision || !summary.approvedAt) {
+    await prisma.summaryEmailRecipient.updateMany({
+      where: { distributionId, status: { in: ['PENDING', 'SENDING'] } },
+      data: {
+        status: 'FAILED',
+        errorCode: 'SUMMARY_APPROVAL_REQUIRED',
+        errorMessage: '会议纪要尚未确认，未发送',
+      },
+    });
+    await finalizeDistribution(distributionId);
+    return;
+  }
   if (await persistedSummaryIsStale(distribution.conversationId, summary)) {
     await prisma.summaryEmailRecipient.updateMany({
       where: { distributionId, status: { in: ['PENDING', 'SENDING'] } },
@@ -361,7 +377,6 @@ export async function processSummaryEmailDistribution(
     await finalizeDistribution(distributionId);
     return;
   }
-
   const now = new Date();
   const unsafeRetryBefore = new Date(now.getTime() - providerIdempotencySafetyMs);
   await prisma.summaryEmailRecipient.updateMany({
@@ -546,6 +561,23 @@ async function sendRecipient(
         status: 'FAILED',
         errorCode: 'SUMMARY_STALE',
         errorMessage: '会议内容已变化，未发送旧版会议纪要',
+      },
+    });
+    return;
+  }
+  const currentSummary = await prisma.conversationSummary.findUnique({ where: { id: summary.id } });
+  if (
+    !currentSummary ||
+    currentSummary.revision !== distribution.summaryRevision ||
+    currentSummary.approvedRevision !== currentSummary.revision ||
+    !currentSummary.approvedAt
+  ) {
+    await prisma.summaryEmailRecipient.updateMany({
+      where: { id: recipient.id, status: 'SENDING', claimedAt },
+      data: {
+        status: 'FAILED',
+        errorCode: 'SUMMARY_APPROVAL_REQUIRED',
+        errorMessage: '会议纪要审批状态已变化，未发送',
       },
     });
     return;

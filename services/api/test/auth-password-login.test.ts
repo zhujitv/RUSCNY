@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => {
   const transaction = {
     $queryRaw: vi.fn(),
+    user: { update: vi.fn() },
     userDevice: { upsert: vi.fn() },
   };
   return {

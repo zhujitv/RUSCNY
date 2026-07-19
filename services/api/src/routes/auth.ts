@@ -104,6 +104,13 @@ async function issueUserSession(user: {
     if (rows[0]?.status !== 'ACTIVE') {
       throw unauthorized('ACCOUNT_DISABLED', '账号不存在或已停用');
     }
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        legalPolicyVersion: config.LEGAL_POLICY_VERSION,
+        legalPolicyAcceptedAt: authenticatedAt,
+      },
+    });
     await tx.userDevice.upsert({
       where: { userId_deviceId: { userId: user.id, deviceId } },
       create: {
@@ -153,6 +160,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         preferredLanguage: body.preferredLanguage,
         role: 'USER',
         passwordHash,
+        legalPolicyVersion: config.LEGAL_POLICY_VERSION,
+        legalPolicyAcceptedAt: new Date(),
       },
       select: {
         id: true,
@@ -325,6 +334,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
                 // reactivate the same scoped identity.
                 expiresAt: lockedConversation.expiresAt,
                 sessionId,
+                legalPolicyVersion: config.LEGAL_POLICY_VERSION,
+                legalPolicyAcceptedAt: joinedAt,
               },
             })
           : await tx.guestIdentity.create({
@@ -338,6 +349,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
                 guestPrincipalId: principal.id,
                 expiresAt: lockedConversation.expiresAt,
                 sessionId,
+                legalPolicyVersion: config.LEGAL_POLICY_VERSION,
+                legalPolicyAcceptedAt: joinedAt,
               },
             });
         const membership = await tx.participant.findUnique({

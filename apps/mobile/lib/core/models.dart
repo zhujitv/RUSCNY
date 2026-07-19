@@ -683,6 +683,8 @@ final class MeetingSummary {
     this.sourceMaxSequence,
     this.sourceMessageCount,
     this.isStale,
+    this.approvedRevision,
+    this.approvedAt,
   });
 
   final String summary;
@@ -697,6 +699,9 @@ final class MeetingSummary {
   final int? sourceMaxSequence;
   final int? sourceMessageCount;
   final bool? isStale;
+  final int? approvedRevision;
+  final DateTime? approvedAt;
+  bool get isApproved => approvedAt != null && approvedRevision == revision;
 
   factory MeetingSummary.fromJson(Map<String, dynamic> json) => MeetingSummary(
         summary: json['summary']?.toString() ?? '',
@@ -723,6 +728,8 @@ final class MeetingSummary {
         sourceMaxSequence: (json['sourceMaxSequence'] as num?)?.toInt(),
         sourceMessageCount: (json['sourceMessageCount'] as num?)?.toInt(),
         isStale: json['isStale'] is bool ? json['isStale'] as bool : null,
+        approvedRevision: (json['approvedRevision'] as num?)?.toInt(),
+        approvedAt: json['approvedAt'] == null ? null : _date(json['approvedAt']),
       );
 }
 

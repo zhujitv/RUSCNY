@@ -27,6 +27,11 @@ import {
 } from '../services/audio-deletion-outbox.js';
 import { recoverStaleProcessingMessages } from '../services/message-processing.js';
 import { summaryIsStale } from '../services/summary-freshness.js';
+import {
+  meetingSummaryProvider,
+  SUMMARY_PROMPT_VERSION,
+  type SummaryGenerationAudit,
+} from '../providers/meeting-summary.js';
 
 const participantProfileSchema = z.object({
   displayName: profileTextSchema(100),
@@ -56,7 +61,8 @@ const summaryActionItemSchema = summarySourcedItemSchema.extend({
   dueAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
 const summaryGenerationSchema = z.object({
-  summary: z.string().trim().max(20_000).optional(),
+  summary: z.string().trim().min(1).max(20_000).optional(),
+  summarySourceSequences: summarySourceSequencesSchema.optional(),
   partyViews: z.array(summaryPartyViewSchema).max(1_000).optional(),
   confirmedItems: z.array(summarySourcedItemSchema).max(1_000).optional(),
   actionItems: z.array(summaryActionItemSchema).max(1_000).optional(),
@@ -976,11 +982,46 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
 
   app.post(
     '/v1/conversations/:id/summary',
-    { preHandler: requireRole('USER') },
+    {
+      preHandler: requireRole('USER'),
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
     async (request) => {
       const { id } = z.object({ id: z.string() }).parse(request.params);
       const body = summaryGenerationSchema.parse(request.body ?? {});
-      const saved = await prisma.$transaction(async (tx) => {
+      if (Object.keys(body).length > 0) {
+        const saved = await prisma.$transaction(async (tx) => {
+          const conversation = await getConversationForAuthInTransaction(
+            tx,
+            request.auth,
+            id,
+            { history: true },
+          );
+          assertConversationOwner(conversation.ownerId, request.auth.subjectId);
+          if (conversation.status !== 'ENDED') {
+            throw conflict(
+              'SUMMARY_REQUIRES_ENDED_CONVERSATION',
+              '请先结束会议，再修改最终会议纪要',
+            );
+          }
+          return generateConversationSummary(tx, conversation, body, undefined, undefined, {
+            mode: 'MANUAL',
+            generatedByUserId: request.auth.subjectId,
+          });
+        });
+        return { ok: true, data: { summary: saved } };
+      }
+
+      const idempotencyKey = request.headers['idempotency-key'];
+      if (
+        typeof idempotencyKey !== 'string' ||
+        idempotencyKey.length < 8 ||
+        idempotencyKey.length > 200
+      ) {
+        throw badRequest('IDEMPOTENCY_KEY_REQUIRED', '生成 AI 会议纪要需要有效的 Idempotency-Key');
+      }
+
+      const snapshot = await prisma.$transaction(async (tx) => {
         const conversation = await getConversationForAuthInTransaction(
           tx,
           request.auth,
@@ -994,17 +1035,244 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
             '请先结束会议，再生成最终会议纪要',
           );
         }
-        return generateConversationSummary(tx, conversation, body);
+        const owner = await tx.user.findUnique({
+          where: { id: request.auth.subjectId },
+          select: { legalPolicyVersion: true },
+        });
+        if (owner?.legalPolicyVersion !== config.LEGAL_POLICY_VERSION) {
+          throw conflict('LEGAL_POLICY_REACCEPT_REQUIRED', '请重新登录并确认最新隐私政策后再生成 AI 纪要');
+        }
+        const [participants, messages] = await Promise.all([
+          tx.participant.findMany({
+          where: { conversationId: id },
+          orderBy: { joinedAt: 'asc' },
+          }),
+          tx.translationMessage.findMany({
+          where: { conversationId: id, status: 'FINAL' },
+          orderBy: { sequence: 'asc' },
+          }),
+        ]);
+        return { conversation, participants, messages };
       });
-      return { ok: true, data: { summary: saved } };
+      const sourceMessageVersions = snapshot.messages.map(messageSourceVersion);
+      const sourceParticipantVersions = snapshot.participants.map(participantSourceVersion);
+      const sourceHash = stableHash(JSON.stringify({
+        conversationId: id,
+        messages: sourceMessageVersions,
+        participants: sourceParticipantVersions,
+        model: config.ALIYUN_SUMMARY_MODEL,
+        promptVersion: SUMMARY_PROMPT_VERSION,
+      }));
+      const activeKey = `${id}:${sourceHash}`;
+      const staleBefore = new Date(Date.now() - config.SUMMARY_GENERATION_STALE_MS);
+
+      let generationId: string;
+      try {
+        const claim = await prisma.$transaction(async (tx) => {
+          const existing = await tx.summaryGeneration.findUnique({
+            where: { conversationId_idempotencyKey: { conversationId: id, idempotencyKey } },
+          });
+          if (existing) {
+            if (existing.sourceHash !== sourceHash) {
+              throw conflict('IDEMPOTENCY_KEY_REUSED', '同一 Idempotency-Key 不能用于不同的会议纪要来源');
+            }
+            if (existing.status === 'COMPLETED' && existing.summaryRevision) {
+              const summary = await tx.conversationSummary.findUnique({ where: { conversationId: id } });
+              if (summary?.revision === existing.summaryRevision) return { summary };
+              throw conflict('IDEMPOTENCY_RESULT_REPLACED', '该生成结果已被更新，请使用新的 Idempotency-Key');
+            }
+            if (existing.status === 'PROCESSING' && existing.startedAt >= staleBefore) {
+              throw conflict('SUMMARY_GENERATION_IN_PROGRESS', '本场会议纪要正在生成，请勿重复提交');
+            }
+            const reclaimed = await tx.summaryGeneration.update({
+              where: { id: existing.id },
+              data: {
+                status: 'PROCESSING',
+                activeKey,
+                errorCode: null,
+                startedAt: new Date(),
+                completedAt: null,
+                attempts: { increment: 1 },
+              },
+            });
+            return { generationId: reclaimed.id };
+          }
+          const activeGeneration = await tx.summaryGeneration.findUnique({
+            where: { activeKey },
+          });
+          if (activeGeneration) {
+            if (activeGeneration.startedAt >= staleBefore) {
+              throw conflict('SUMMARY_GENERATION_IN_PROGRESS', '本场会议纪要正在生成，请勿重复提交');
+            }
+            await tx.summaryGeneration.update({
+              where: { id: activeGeneration.id },
+              data: {
+                status: 'FAILED',
+                activeKey: null,
+                errorCode: 'SUMMARY_GENERATION_STALE',
+                completedAt: new Date(),
+              },
+            });
+          }
+          const recentCount = await tx.summaryGeneration.count({
+            where: {
+              requestedByUserId: request.auth.subjectId,
+              createdAt: { gte: new Date(Date.now() - 60_000) },
+            },
+          });
+          if (recentCount >= 5) {
+            throw new AppError(429, 'SUMMARY_GENERATION_RATE_LIMITED', 'AI 会议纪要生成过于频繁，请稍后再试');
+          }
+          const created = await tx.summaryGeneration.create({
+            data: {
+              conversationId: id,
+              requestedByUserId: request.auth.subjectId,
+              idempotencyKey,
+              sourceHash,
+              activeKey,
+              provider: config.SUMMARY_PROVIDER,
+              model: config.ALIYUN_SUMMARY_MODEL,
+              promptVersion: SUMMARY_PROMPT_VERSION,
+            },
+          });
+          return { generationId: created.id };
+        });
+        if ('summary' in claim) return { ok: true, data: { summary: claim.summary } };
+        generationId = claim.generationId;
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          throw conflict('SUMMARY_GENERATION_IN_PROGRESS', '本场会议纪要正在生成，请勿重复提交');
+        }
+        throw error;
+      }
+
+      try {
+        const generated = await meetingSummaryProvider.generate({
+          conversationTitle: snapshot.conversation.title ?? snapshot.conversation.id,
+          participants: snapshot.participants.map((participant) => ({
+            participantId: participant.id,
+            displayName: participant.displayName,
+            company: participant.company,
+            preferredLanguage: participant.preferredLanguage,
+          })),
+          messages: snapshot.messages.map((message) => ({
+            sequence: message.sequence,
+            participantId: message.participantId,
+            speakerDisplayName: message.speakerDisplayName,
+            speakerCompany: message.speakerCompany,
+            sourceLanguage: message.sourceLanguage,
+            sourceText: effectiveSourceText(message),
+            translatedText: effectiveTranslatedText(message),
+            spokenAt: message.createdAt.toISOString(),
+          })),
+        });
+        const saved = await prisma.$transaction(async (tx) => {
+          const conversation = await getConversationForAuthInTransaction(
+            tx,
+            request.auth,
+            id,
+            { history: true },
+          );
+          assertConversationOwner(conversation.ownerId, request.auth.subjectId);
+          if (conversation.status !== 'ENDED') {
+            throw conflict('SUMMARY_REQUIRES_ENDED_CONVERSATION', '会议状态已变化，未保存 AI 纪要');
+          }
+          const summary = await generateConversationSummary(
+            tx,
+            conversation,
+            generated.draft,
+            sourceMessageVersions,
+            sourceParticipantVersions,
+            {
+              mode: 'AI',
+              generatedByUserId: request.auth.subjectId,
+              sourceHash,
+              audit: generated.audit,
+            },
+          );
+          await tx.summaryGeneration.update({
+            where: { id: generationId },
+            data: {
+              status: 'COMPLETED',
+              activeKey: null,
+              summaryRevision: summary.revision,
+              providerRequestId: generated.audit.providerRequestId,
+              inputTokens: generated.audit.inputTokens,
+              outputTokens: generated.audit.outputTokens,
+              completedAt: new Date(),
+            },
+          });
+          return summary;
+        });
+        return { ok: true, data: { summary: saved } };
+      } catch (error) {
+        await prisma.summaryGeneration.updateMany({
+          where: { id: generationId, status: 'PROCESSING' },
+          data: {
+            status: 'FAILED',
+            activeKey: null,
+            errorCode: error instanceof AppError ? error.code : 'SUMMARY_GENERATION_FAILED',
+            completedAt: new Date(),
+          },
+        });
+        throw error;
+      }
     },
   );
+
+  app.post(
+    '/v1/conversations/:id/summary/approve',
+    { preHandler: requireRole('USER') },
+    async (request) => {
+      const { id } = z.object({ id: z.string() }).parse(request.params);
+      const body = z.object({ revision: z.number().int().positive() }).strict().parse(request.body);
+      const summary = await prisma.$transaction(async (tx) => {
+        const conversation = await getConversationForAuthInTransaction(tx, request.auth, id, { history: true });
+        assertConversationOwner(conversation.ownerId, request.auth.subjectId);
+        const current = await tx.conversationSummary.findUnique({ where: { conversationId: id } });
+        if (!current) throw notFound('SUMMARY_NOT_FOUND', '会议纪要尚未生成');
+        if (current.revision !== body.revision) {
+          throw conflict('SUMMARY_REVISION_CONFLICT', '会议纪要已更新，请重新查看后确认');
+        }
+        const sourceState = await tx.translationMessage.aggregate({
+          where: { conversationId: id, status: 'FINAL' },
+          _max: { sequence: true, updatedAt: true },
+          _count: { _all: true },
+        });
+        if (summaryIsStale(current, sourceState)) {
+          throw conflict('SUMMARY_STALE', '会议内容已变化，请重新生成会议纪要后再确认');
+        }
+        return tx.conversationSummary.update({
+          where: { id: current.id },
+          data: {
+            approvedRevision: current.revision,
+            approvedAt: new Date(),
+            approvedByUserId: request.auth.subjectId,
+          },
+        });
+      });
+      return { ok: true, data: { summary } };
+    },
+  );
+}
+
+interface SummarySaveMetadata {
+  mode: 'AI' | 'MANUAL';
+  generatedByUserId: string;
+  sourceHash?: string;
+  audit?: SummaryGenerationAudit;
 }
 
 async function generateConversationSummary(
   tx: Prisma.TransactionClient,
   conversation: Awaited<ReturnType<typeof getConversationForAuthInTransaction>>,
   body: z.infer<typeof summaryGenerationSchema>,
+  expectedSourceVersions?: string[],
+  expectedParticipantVersions?: string[],
+  metadata?: SummarySaveMetadata,
 ) {
   const id = conversation.id;
   const [participants, messages] = await Promise.all([
@@ -1017,6 +1285,28 @@ async function generateConversationSummary(
       orderBy: { sequence: 'asc' },
     }),
   ]);
+  if (
+    expectedSourceVersions &&
+    (expectedSourceVersions.length !== messages.length ||
+      expectedSourceVersions.some((version, index) => version !== messageSourceVersion(messages[index]!)))
+  ) {
+    throw conflict(
+      'SUMMARY_SOURCE_CHANGED',
+      '会议内容在 AI 整理期间发生变化，请重新生成会议纪要',
+    );
+  }
+  if (
+    expectedParticipantVersions &&
+    (expectedParticipantVersions.length !== participants.length ||
+      expectedParticipantVersions.some(
+        (version, index) => version !== participantSourceVersion(participants[index]!),
+      ))
+  ) {
+    throw conflict(
+      'SUMMARY_SOURCE_CHANGED',
+      '参会者资料在 AI 整理期间发生变化，请重新生成会议纪要',
+    );
+  }
   const participantRoster = participants.map(participantDto);
   const participantById = new Map(
     participants.map((participant) => [participant.id, participant]),
@@ -1094,6 +1384,9 @@ async function generateConversationSummary(
     items.map((item) => ({ ...item, sources: sourceSnapshots(item.sourceSequences) }));
   const confirmedItems = withSources(body.confirmedItems ?? []);
   const openQuestions = withSources(body.openQuestions ?? []);
+  const summarySources = sourceSnapshots(
+    body.summarySourceSequences ?? messages.map((message) => message.sequence),
+  );
   const actionItems = (body.actionItems ?? []).map((item) => {
     const assignee = participantById.get(item.assigneeParticipantId);
     if (!assignee) {
@@ -1124,6 +1417,7 @@ async function generateConversationSummary(
     create: {
       conversationId: id,
       summary: summaryText,
+      summarySources: asJson(summarySources),
       participantRoster: asJson(participantRoster),
       coreDiscussion: asJson(coreDiscussion),
       partyViews: asJson(partyViews),
@@ -1141,10 +1435,20 @@ async function generateConversationSummary(
       sourceMessageCount: messages.length,
       sourceLatestMessageUpdatedAt,
       revision: 1,
+      generationMode: metadata?.mode ?? 'MANUAL',
+      provider: metadata?.audit?.provider,
+      model: metadata?.audit?.model,
+      promptVersion: metadata?.audit?.promptVersion,
+      providerRequestId: metadata?.audit?.providerRequestId,
+      inputTokens: metadata?.audit?.inputTokens,
+      outputTokens: metadata?.audit?.outputTokens,
+      sourceHash: metadata?.sourceHash,
+      generatedByUserId: metadata?.generatedByUserId,
       generatedAt,
     },
     update: {
       summary: summaryText,
+      summarySources: asJson(summarySources),
       participantRoster: asJson(participantRoster),
       coreDiscussion: asJson(coreDiscussion),
       partyViews: asJson(partyViews),
@@ -1155,9 +1459,45 @@ async function generateConversationSummary(
       sourceMessageCount: messages.length,
       sourceLatestMessageUpdatedAt,
       revision: { increment: 1 },
+      generationMode: metadata?.mode ?? 'MANUAL',
+      provider: metadata?.audit?.provider ?? null,
+      model: metadata?.audit?.model ?? null,
+      promptVersion: metadata?.audit?.promptVersion ?? null,
+      providerRequestId: metadata?.audit?.providerRequestId ?? null,
+      inputTokens: metadata?.audit?.inputTokens ?? null,
+      outputTokens: metadata?.audit?.outputTokens ?? null,
+      sourceHash: metadata?.sourceHash ?? null,
+      generatedByUserId: metadata?.generatedByUserId,
+      approvedRevision: null,
+      approvedAt: null,
+      approvedByUserId: null,
       generatedAt,
     },
   });
+}
+
+function messageSourceVersion(message: {
+  id: string;
+  sequence: number;
+  updatedAt: Date;
+}): string {
+  return JSON.stringify([message.id, message.sequence, message.updatedAt.toISOString()]);
+}
+
+function participantSourceVersion(participant: {
+  id: string;
+  displayName: string;
+  company: string | null;
+  preferredLanguage: string;
+  removedAt: Date | null;
+}): string {
+  return JSON.stringify([
+    participant.id,
+    participant.displayName,
+    participant.company,
+    participant.preferredLanguage,
+    participant.removedAt?.toISOString() ?? '',
+  ]);
 }
 
 interface LockedInvitationConversation {

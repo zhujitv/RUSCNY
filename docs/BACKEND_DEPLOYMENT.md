@@ -67,6 +67,7 @@ Compose 从仓库根目录构建 `services/api/Dockerfile`，`migrate` one-shot 
 | `PASSWORD_PEPPER` | 密码登录是 | Secret Manager 管理，轮换需迁移方案 |
 | `SYSTEM_ADMIN_USER_IDS` | 管理后台初始引导时 | 已注册且正常账号的不可复用 User ID 白名单，逗号分隔；不得用未验证且可重新注册的邮箱授予权限 |
 | `ADMIN_PASSWORD_RESET_TTL_MINUTES` | 是 | 管理员签发的一次性密码重置凭证有效期，默认 30，范围 5–1440 |
+| `LEGAL_POLICY_VERSION` | 是 | 当前 AI 处理政策版本；变更后旧账号需重新登录确认才能生成纪要 |
 | `ACCESS_TOKEN_TTL_SECONDS` | 是 | 默认 900 |
 | `REFRESH_TOKEN_TTL_SECONDS` | 是 | 默认 2592000 |
 | `PUBLIC_APP_URL=https://www.ruscny.net` | 是 | 已确定的邀请链接、H5 参会和下载主站；与 API 同源 |
@@ -75,6 +76,11 @@ Compose 从仓库根目录构建 `services/api/Dockerfile`，`migrate` one-shot 
 | `INVITE_TTL_MINUTES` | 是 | 邀请默认有效期 |
 | `UPLOAD_MAX_BYTES` | 是 | 二进制音频上限，默认且最大 6,000,000 字节，为 Base64/JSON 封装预留上游请求空间 |
 | `TRANSLATION_PROVIDER=aliyun` | 是 | 生产禁止 mock |
+| `SUMMARY_PROVIDER=aliyun` | 是 | 生产禁止确定性 mock；复用服务端百炼 Key |
+| `ALIYUN_SUMMARY_MODEL` | 是 | 默认 `qwen-plus`，切换前需完成中俄商务语料评测 |
+| `SUMMARY_MAX_MESSAGES` / `SUMMARY_MAX_INPUT_CHARACTERS` | 是 | 控制单次模型输入规模与费用，默认 1000 条/50 万字符 |
+| `SUMMARY_REQUEST_TIMEOUT_MS` | 是 | 纪要独立超时，默认 120 秒 |
+| `SUMMARY_GENERATION_STALE_MS` | 是 | 生成任务占用超时，默认 180 秒；超时后允许安全接管 |
 | `ALIYUN_*` | 是 | 见阿里云接入文档 |
 | `EMAIL_PROVIDER=resend` | 生产是 | 生产配置为 mock 会拒绝启动 |
 | `RESEND_API_KEY` | 生产是 | 仅服务端 Secret；不得进入 App、日志或仓库 |

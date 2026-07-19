@@ -1,4 +1,4 @@
-# 会议纪要邮件分发代码审计（2026-07-19）
+# AI 会议纪要与邮件分发代码审计（2026-07-19）
 
 ## 范围
 
@@ -14,21 +14,26 @@
 | 高 | 相同 `Idempotency-Key` 的并发创建可能由数据库唯一约束返回普通 409，而不是收敛到同一任务 | 捕获唯一键竞争后读取获胜任务，并重新校验纪要 revision 与收件人请求摘要 |
 | 中 | 外部供应商可能已受理但进程尚未落库；长时间后重放同一请求可能超出供应商幂等窗口并形成重复邮件 | 每位收件人使用稳定供应商幂等键；陈旧 `SENDING` 只在安全窗口内恢复，超窗标记 `EMAIL_DELIVERY_UNKNOWN_RETRY_EXPIRED`，禁止自动重发 |
 | 中 | 缺少邮件 adapter 的直接测试 | 新增单收件人请求、Authorization/幂等 header、429 映射和供应商原始错误不泄露测试 |
+| 高 | AI 纪要生成没有持久幂等任务；客户端超时或并发点击可能重复调用模型，崩溃后也无可检索状态 | 新增 `SummaryGeneration`，按会议+幂等键去重、按来源 hash 单活动任务、超时失败接管、每账号限速并记录错误 |
+| 高 | AI 草稿可直接进入邮件分发，没有服务端可证明的主持人复核状态 | 新增 revision 级批准接口与批准人/时间；任意更新撤销旧批准，收件人接口、任务创建、worker 和逐封发送均重验当前批准 |
+| 高 | 模型结论有来源引用但整体概要无引用，prompt 对会议内容中的指令注入边界不明确 | 概要新增 `summarySourceSequences`；system prompt 明确 transcript/participant 为不可信数据，结构校验后再做发言人、负责人和 sequence 复验 |
+| 中 | 生成供应商、模型、prompt 版本、request id 和 token 用量未落库，不利于质量、成本和事故追踪 | 纪要与生成任务保存完整模型审计字段及来源 hash；政策版本接受也保存到注册用户/临时身份 |
+| 中 | 人工修订与 AI 生成共用 provider 前置路径，供应商故障时主持人无法保存人工版本 | 非空严格 body 明确走 MANUAL 分支，不调用外部模型；AI 仅接受空 body 并强制幂等键 |
 
 ## 验证证据
 
 - Prisma Client 生成、schema validate、从空模型生成 PostgreSQL schema SQL：通过。
 - 后端 `typecheck`、`build`：通过。
-- 后端自动化：30 个测试文件，196/196 通过。
-- 纪要邮件、供应商与模板专项：15/15 通过。
+- 审计后当前复验：34 个后端测试文件，228/228 通过。
+- AI 纪要 provider、生成/批准和邮件分发专项：32/32 通过。
 - 客户官网账号注册/登录与 H5 回归：11/11 通过，相关 JavaScript 语法检查通过。
 - `npm audit --omit=dev --json`：167 个生产依赖，0 个已知漏洞。
 - 客户端目录未发现 `RESEND_API_KEY`、`EMAIL_FROM` 或 `EMAIL_PROVIDER` 服务端配置引用。
 
 ## 仍需真实环境关闭
 
-- Flutter 3.44.6 / Dart 3.12.2 下本地直接 `dart analyze lib test` 0 问题、Flutter 测试 51/51、Android debug build 通过；GitHub CI 另已通过 `flutter analyze`、51/51 测试、Android debug APK 和 iOS Simulator App 构建。
-- GitHub CI 已在 PostgreSQL 16 上应用全部 16 个迁移并通过 13/13 API/Socket 集成测试；多 API worker/Redis adapter 的跨实例 CAS、广播和故障恢复仍需双副本故障注入验证。
+- 上一版 Flutter 3.44.6 / Dart 3.12.2 验证通过；当前新增批准与幂等 UI 后，本机没有 Flutter/Dart 命令，最新移动端改动需由下一次 CI 重跑。
+- 当前本地 schema/diff 覆盖 19 个迁移；GitHub CI 现有 PostgreSQL 证据只覆盖前 16 个迁移和 13/13 API/Socket 集成测试。新迁移、双 API worker/Redis adapter 的跨实例 CAS、广播和故障恢复均需提交后验证。
 - Resend 发信域 SPF/DKIM、真实中俄邮箱、限流、垃圾邮件、退信和投诉 webhook 尚未验证；当前 `SENT` 只表示供应商已受理。
 - 已进入外部邮件供应商处理中的邮件无法撤回；注销/撤权可阻止尚未开始的收件人，但生产验收仍应覆盖“撤权与供应商调用同时发生”的时间边界。
-- 当前结构化纪要生成是确定性/主持人确认路径；生产级生成式 AI 摘要 provider、质量评测和人工复核仍未接入。
+- 已新增阿里云百炼通义千问 provider、结构化输出校验、概要与结论来源引用、生成任务审计和主持人批准；真实中俄会议质量评测、生产账号、模型地域/费用和提示注入红队验收仍待执行。

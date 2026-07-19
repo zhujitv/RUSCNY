@@ -129,38 +129,49 @@ enum SummaryEmailRecipientStatus {
   FAILED
 }
 
+enum SummaryGenerationStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model User {
-  id                         String              @id @default(cuid())
-  role                       UserRole
-  isSystemAdmin              Boolean             @default(false)
-  adminRole                  SystemAdminRole?
-  displayName                String
-  company                    String?
-  preferredLanguage          Language            @default(zh)
-  phone                      String?             @unique
-  email                      String?             @unique
-  passwordHash               String?
-  avatarUrl                  String?
-  status                     UserStatus          @default(ACTIVE)
-  deletedAt                  DateTime?
-  createdAt                  DateTime            @default(now())
-  updatedAt                  DateTime            @updatedAt
-  devices                    UserDevice[]
-  contacts                   Contact[]           @relation("ContactOwner")
-  linkedContacts             Contact[]           @relation("LinkedCustomer")
-  conversations              Conversation[]      @relation("ConversationOwner")
-  participants               Participant[]
-  glossaryTerms              GlossaryTerm[]
-  sentFriendRequests         FriendRequest[]     @relation("FriendRequestSender")
-  receivedFriendRequests     FriendRequest[]     @relation("FriendRequestReceiver")
-  friendshipsAsA             Friendship[]        @relation("FriendshipUserA")
-  friendshipsAsB             Friendship[]        @relation("FriendshipUserB")
-  sentMeetingInvitations     MeetingInvitation[] @relation("MeetingInvitationInviter")
-  receivedMeetingInvitations MeetingInvitation[] @relation("MeetingInvitationInvitee")
+  id                                 String                     @id @default(cuid())
+  role                               UserRole
+  isSystemAdmin                      Boolean                    @default(false)
+  adminRole                          SystemAdminRole?
+  displayName                        String
+  company                            String?
+  preferredLanguage                  Language                   @default(zh)
+  phone                              String?                    @unique
+  email                              String?                    @unique
+  passwordHash                       String?
+  avatarUrl                          String?
+  status                             UserStatus                 @default(ACTIVE)
+  deletedAt                          DateTime?
+  legalPolicyVersion                 String?
+  legalPolicyAcceptedAt              DateTime?
+  createdAt                          DateTime                   @default(now())
+  updatedAt                          DateTime                   @updatedAt
+  devices                            UserDevice[]
+  contacts                           Contact[]                  @relation("ContactOwner")
+  linkedContacts                     Contact[]                  @relation("LinkedCustomer")
+  conversations                      Conversation[]             @relation("ConversationOwner")
+  participants                       Participant[]
+  glossaryTerms                      GlossaryTerm[]
+  sentFriendRequests                 FriendRequest[]            @relation("FriendRequestSender")
+  receivedFriendRequests             FriendRequest[]            @relation("FriendRequestReceiver")
+  friendshipsAsA                     Friendship[]               @relation("FriendshipUserA")
+  friendshipsAsB                     Friendship[]               @relation("FriendshipUserB")
+  sentMeetingInvitations             MeetingInvitation[]        @relation("MeetingInvitationInviter")
+  receivedMeetingInvitations         MeetingInvitation[]        @relation("MeetingInvitationInvitee")
   requestedSummaryEmailDistributions SummaryEmailDistribution[] @relation("SummaryEmailRequester")
-  adminAuditLogs             AdminAuditLog[]     @relation("AdminAuditActor")
-  createdPasswordResetTokens AdminPasswordResetToken[] @relation("AdminPasswordResetCreator")
-  passwordResetTokens        AdminPasswordResetToken[] @relation("AdminPasswordResetTarget")
+  requestedSummaryGenerations        SummaryGeneration[]        @relation("SummaryGenerationRequester")
+  generatedSummaries                 ConversationSummary[]      @relation("SummaryGenerator")
+  approvedSummaries                  ConversationSummary[]      @relation("SummaryApprover")
+  adminAuditLogs                     AdminAuditLog[]            @relation("AdminAuditActor")
+  createdPasswordResetTokens         AdminPasswordResetToken[]  @relation("AdminPasswordResetCreator")
+  passwordResetTokens                AdminPasswordResetToken[]  @relation("AdminPasswordResetTarget")
 }
 
 model UserDevice {
@@ -184,21 +195,23 @@ model UserDevice {
 }
 
 model GuestIdentity {
-  id                String          @id @default(cuid())
-  sessionId         String          @default(cuid())
-  displayName       String
-  company           String?
-  email             String?
-  preferredLanguage Language        @default(ru)
-  deviceId          String
-  conversationId    String
-  guestPrincipalId  String?
-  expiresAt         DateTime
-  revokedAt         DateTime?
-  createdAt         DateTime        @default(now())
-  conversation      Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  guestPrincipal    GuestPrincipal? @relation(fields: [guestPrincipalId], references: [id], onDelete: SetNull)
-  participants      Participant[]
+  id                    String          @id @default(cuid())
+  sessionId             String          @default(cuid())
+  displayName           String
+  company               String?
+  email                 String?
+  preferredLanguage     Language        @default(ru)
+  deviceId              String
+  conversationId        String
+  guestPrincipalId      String?
+  expiresAt             DateTime
+  revokedAt             DateTime?
+  legalPolicyVersion    String?
+  legalPolicyAcceptedAt DateTime?
+  createdAt             DateTime        @default(now())
+  conversation          Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  guestPrincipal        GuestPrincipal? @relation(fields: [guestPrincipalId], references: [id], onDelete: SetNull)
+  participants          Participant[]
 
   @@unique([conversationId, guestPrincipalId])
   @@index([conversationId, deviceId])
@@ -235,55 +248,56 @@ model Contact {
 }
 
 model Conversation {
-  id                   String               @id @default(cuid())
-  ownerId              String
-  contactId            String
-  title                String?
-  hostLanguage         Language             @default(zh)
-  guestLanguage        Language             @default(ru)
-  status               ConversationStatus   @default(WAITING)
-  roomTokenHash        String               @unique
-  roomCodeHash         String               @unique
-  guestHistoryPolicy   GuestHistoryPolicy   @default(ACCESS_FOR_24_HOURS)
-  guestAccessExpiresAt DateTime?
-  expiresAt            DateTime
-  startedAt            DateTime?
-  endedAt              DateTime?
-  maxSequence          Int                  @default(0)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  owner                User                 @relation("ConversationOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  contact              Contact              @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  participants         Participant[]
-  guestIdentities      GuestIdentity[]
-  messages             TranslationMessage[]
-  summary              ConversationSummary?
+  id                        String                     @id @default(cuid())
+  ownerId                   String
+  contactId                 String
+  title                     String?
+  hostLanguage              Language                   @default(zh)
+  guestLanguage             Language                   @default(ru)
+  status                    ConversationStatus         @default(WAITING)
+  roomTokenHash             String                     @unique
+  roomCodeHash              String                     @unique
+  guestHistoryPolicy        GuestHistoryPolicy         @default(ACCESS_FOR_24_HOURS)
+  guestAccessExpiresAt      DateTime?
+  expiresAt                 DateTime
+  startedAt                 DateTime?
+  endedAt                   DateTime?
+  maxSequence               Int                        @default(0)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  owner                     User                       @relation("ConversationOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  contact                   Contact                    @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  participants              Participant[]
+  guestIdentities           GuestIdentity[]
+  messages                  TranslationMessage[]
+  summary                   ConversationSummary?
   summaryEmailDistributions SummaryEmailDistribution[]
-  meetingInvitations   MeetingInvitation[]
+  summaryGenerations        SummaryGeneration[]
+  meetingInvitations        MeetingInvitation[]
 
   @@index([ownerId, contactId, createdAt])
   @@index([status, expiresAt])
 }
 
 model Participant {
-  id                String               @id @default(cuid())
-  conversationId    String
-  role              ParticipantRole
-  userId            String?
-  guestIdentityId   String?
-  displayName       String
-  company           String?
-  email             String?
-  preferredLanguage Language
-  presence          ParticipantPresence  @default(OFFLINE)
-  joinedAt          DateTime             @default(now())
-  leftAt            DateTime?
-  lastSeenAt        DateTime?
-  removedAt         DateTime?
-  conversation      Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user              User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
-  guestIdentity     GuestIdentity?       @relation(fields: [guestIdentityId], references: [id], onDelete: SetNull)
-  messages          TranslationMessage[]
+  id                     String                  @id @default(cuid())
+  conversationId         String
+  role                   ParticipantRole
+  userId                 String?
+  guestIdentityId        String?
+  displayName            String
+  company                String?
+  email                  String?
+  preferredLanguage      Language
+  presence               ParticipantPresence     @default(OFFLINE)
+  joinedAt               DateTime                @default(now())
+  leftAt                 DateTime?
+  lastSeenAt             DateTime?
+  removedAt              DateTime?
+  conversation           Conversation            @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user                   User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestIdentity          GuestIdentity?          @relation(fields: [guestIdentityId], references: [id], onDelete: SetNull)
+  messages               TranslationMessage[]
   summaryEmailRecipients SummaryEmailRecipient[]
 
   @@unique([conversationId, userId])
@@ -292,40 +306,40 @@ model Participant {
 }
 
 model TranslationMessage {
-  id                 String          @id @default(cuid())
-  conversationId     String
-  participantId      String
-  speakerRole        ParticipantRole
-  sourceLanguage     Language
-  targetLanguage     Language
-  speakerDisplayName String
-  speakerCompany     String?
-  speakerLanguage    Language
-  sourceText         String          @default("")
-  translatedText     String          @default("")
-  audioUrl           String?
-  status             MessageStatus   @default(PROCESSING)
-  sequence           Int
-  idempotencyKey     String
-  requestHash        String?
-  startedAtMs        Int?
-  endedAtMs          Int?
-  provider           String?
-  providerRequestId  String?
-  errorCode          String?
-  errorMessage       String?
-  reviewStatus       MessageReviewStatus @default(UNREVIEWED)
-  reviewRevision     Int                  @default(0)
-  confirmedSourceText String?
+  id                      String              @id @default(cuid())
+  conversationId          String
+  participantId           String
+  speakerRole             ParticipantRole
+  sourceLanguage          Language
+  targetLanguage          Language
+  speakerDisplayName      String
+  speakerCompany          String?
+  speakerLanguage         Language
+  sourceText              String              @default("")
+  translatedText          String              @default("")
+  audioUrl                String?
+  status                  MessageStatus       @default(PROCESSING)
+  sequence                Int
+  idempotencyKey          String
+  requestHash             String?
+  startedAtMs             Int?
+  endedAtMs               Int?
+  provider                String?
+  providerRequestId       String?
+  errorCode               String?
+  errorMessage            String?
+  reviewStatus            MessageReviewStatus @default(UNREVIEWED)
+  reviewRevision          Int                 @default(0)
+  confirmedSourceText     String?
   confirmedTranslatedText String?
-  pendingSourceText  String?
-  pendingTranslatedText String?
-  reviewedAt         DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  conversation       Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  participant        Participant     @relation(fields: [participantId], references: [id], onDelete: Cascade)
-  corrections        MessageCorrection[]
+  pendingSourceText       String?
+  pendingTranslatedText   String?
+  reviewedAt              DateTime?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  conversation            Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  participant             Participant         @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  corrections             MessageCorrection[]
 
   @@unique([conversationId, sequence])
   @@unique([conversationId, participantId, idempotencyKey])
@@ -339,29 +353,29 @@ model TranslationMessage {
 /// pending text is materialized on TranslationMessage only for fast timeline
 /// reads and is always advanced with reviewRevision compare-and-swap.
 model MessageCorrection {
-  id                       String                  @id @default(cuid())
-  conversationId           String
-  messageId                String
-  revision                 Int
-  kind                     MessageCorrectionKind
-  status                   MessageCorrectionStatus @default(PENDING)
-  proposedSourceText       String
-  proposedTranslatedText   String
-  reason                   String?
-  actorType                CorrectionActorType
-  actorSubjectId           String
-  actorParticipantId       String
-  actorDisplayName         String
-  actorCompany             String?
-  idempotencyKey           String
-  requestHash              String
-  decisionReason           String?
-  decidedAt                DateTime?
-  decidedBySubjectId       String?
-  decidedByParticipantId   String?
-  deciderDisplayName       String?
-  createdAt                DateTime                @default(now())
-  message                  TranslationMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  id                     String                  @id @default(cuid())
+  conversationId         String
+  messageId              String
+  revision               Int
+  kind                   MessageCorrectionKind
+  status                 MessageCorrectionStatus @default(PENDING)
+  proposedSourceText     String
+  proposedTranslatedText String
+  reason                 String?
+  actorType              CorrectionActorType
+  actorSubjectId         String
+  actorParticipantId     String
+  actorDisplayName       String
+  actorCompany           String?
+  idempotencyKey         String
+  requestHash            String
+  decisionReason         String?
+  decidedAt              DateTime?
+  decidedBySubjectId     String?
+  decidedByParticipantId String?
+  deciderDisplayName     String?
+  createdAt              DateTime                @default(now())
+  message                TranslationMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, revision])
   @@unique([messageId, idempotencyKey])
@@ -427,30 +441,74 @@ model DataDeletionRequest {
 }
 
 model ConversationSummary {
-  id                   String       @id @default(cuid())
-  conversationId       String       @unique
-  summary              String
-  customerRequirements Json
-  products             Json
-  specifications       Json
-  quantity             Json
-  price                Json
-  delivery             Json
-  paymentTerms         Json
-  actionItems          Json
-  openQuestions        Json
-  participantRoster    Json         @default("[]")
-  coreDiscussion       Json         @default("[]")
-  partyViews           Json         @default("[]")
-  confirmedItems       Json         @default("[]")
+  id                           String       @id @default(cuid())
+  conversationId               String       @unique
+  summary                      String
+  summarySources               Json         @default("[]")
+  customerRequirements         Json
+  products                     Json
+  specifications               Json
+  quantity                     Json
+  price                        Json
+  delivery                     Json
+  paymentTerms                 Json
+  actionItems                  Json
+  openQuestions                Json
+  participantRoster            Json         @default("[]")
+  coreDiscussion               Json         @default("[]")
+  partyViews                   Json         @default("[]")
+  confirmedItems               Json         @default("[]")
   /// Null identifies a legacy summary whose exact source boundary predates
   /// revision tracking. Newly generated summaries always set both fields.
-  sourceMaxSequence    Int?
-  sourceMessageCount   Int?
+  sourceMaxSequence            Int?
+  sourceMessageCount           Int?
   sourceLatestMessageUpdatedAt DateTime?
-  revision             Int          @default(1)
-  generatedAt          DateTime     @default(now())
-  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  revision                     Int          @default(1)
+  generationMode               String       @default("MANUAL")
+  provider                     String?
+  model                        String?
+  promptVersion                String?
+  providerRequestId            String?
+  inputTokens                  Int?
+  outputTokens                 Int?
+  sourceHash                   String?
+  generatedByUserId            String?
+  approvedRevision             Int?
+  approvedAt                   DateTime?
+  approvedByUserId             String?
+  generatedAt                  DateTime     @default(now())
+  conversation                 Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  generatedBy                  User?        @relation("SummaryGenerator", fields: [generatedByUserId], references: [id], onDelete: SetNull)
+  approvedBy                   User?        @relation("SummaryApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+}
+
+model SummaryGeneration {
+  id                String                  @id @default(cuid())
+  conversationId    String
+  requestedByUserId String?
+  idempotencyKey    String
+  sourceHash        String
+  activeKey         String?                 @unique
+  status            SummaryGenerationStatus @default(PROCESSING)
+  summaryRevision   Int?
+  provider          String
+  model             String
+  promptVersion     String
+  providerRequestId String?
+  inputTokens       Int?
+  outputTokens      Int?
+  errorCode         String?
+  attempts          Int                     @default(1)
+  startedAt         DateTime                @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  conversation      Conversation            @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  requestedBy       User?                   @relation("SummaryGenerationRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, idempotencyKey])
+  @@index([conversationId, sourceHash, status])
+  @@index([status, startedAt])
 }
 
 /// One host-triggered distribution of one immutable summary revision. The
@@ -481,24 +539,24 @@ model SummaryEmailDistribution {
 /// Per-recipient delivery audit. Identity and email snapshots are retained so
 /// later profile edits cannot rewrite where an already-issued email was sent.
 model SummaryEmailRecipient {
-  id                  String                      @id @default(cuid())
-  distributionId      String
-  participantId       String
-  recipientEmail      String?
+  id                   String                      @id @default(cuid())
+  distributionId       String
+  participantId        String
+  recipientEmail       String?
   recipientDisplayName String
-  recipientCompany    String?
-  recipientLanguage   Language
-  status              SummaryEmailRecipientStatus @default(PENDING)
-  attempts            Int                         @default(0)
-  claimedAt           DateTime?
-  providerMessageId   String?
-  errorCode           String?
-  errorMessage        String?
-  sentAt              DateTime?
-  createdAt           DateTime                    @default(now())
-  updatedAt           DateTime                    @updatedAt
-  distribution        SummaryEmailDistribution    @relation(fields: [distributionId], references: [id], onDelete: Cascade)
-  participant         Participant                 @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  recipientCompany     String?
+  recipientLanguage    Language
+  status               SummaryEmailRecipientStatus @default(PENDING)
+  attempts             Int                         @default(0)
+  claimedAt            DateTime?
+  providerMessageId    String?
+  errorCode            String?
+  errorMessage         String?
+  sentAt               DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  distribution         SummaryEmailDistribution    @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  participant          Participant                 @relation(fields: [participantId], references: [id], onDelete: Cascade)
 
   @@unique([distributionId, participantId])
   @@index([distributionId, status])
@@ -589,15 +647,15 @@ model AdminAuditLog {
 /// One-time administrator-issued password reset capabilities. Only a keyed
 /// digest is persisted; the raw token is returned exactly once to the operator.
 model AdminPasswordResetToken {
-  id             String    @id @default(cuid())
-  userId         String
-  createdById    String
-  tokenHash      String    @unique
-  expiresAt      DateTime
-  usedAt         DateTime?
-  createdAt      DateTime  @default(now())
-  targetUser     User      @relation("AdminPasswordResetTarget", fields: [userId], references: [id], onDelete: Cascade)
-  createdBy      User      @relation("AdminPasswordResetCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  id          String    @id @default(cuid())
+  userId      String
+  createdById String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  targetUser  User      @relation("AdminPasswordResetTarget", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("AdminPasswordResetCreator", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([userId, usedAt, expiresAt])
   @@index([createdById, createdAt])

@@ -19,6 +19,7 @@ const productionSecrets = {
   EMAIL_PROVIDER: 'resend',
   RESEND_API_KEY: 're_test_server_side_key',
   EMAIL_FROM: 'RUSCNY <minutes@send.example.com>',
+  SUMMARY_PROVIDER: 'aliyun',
 };
 
 describe('production configuration guards', () => {

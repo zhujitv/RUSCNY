@@ -52,6 +52,7 @@ const schema = z.object({
   // preferred durable capability after bootstrap.
   SYSTEM_ADMIN_USER_IDS: z.string().default(''),
   ADMIN_PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1_440).default(30),
+  LEGAL_POLICY_VERSION: z.string().trim().min(1).max(100).default('2026-07-19-ai-summary'),
   TRANSLATION_PROVIDER: z.enum(['mock', 'aliyun']).default('mock'),
   ALIYUN_API_KEY: optionalString,
   ALIYUN_COMPATIBLE_BASE_URL: z
@@ -65,6 +66,12 @@ const schema = z.object({
   ALIYUN_ASR_MODEL: z.string().default('qwen3-asr-flash'),
   ALIYUN_TRANSLATION_MODEL: z.string().default('qwen-mt-flash'),
   ALIYUN_TTS_MODEL: z.string().default('qwen3-tts-flash'),
+  SUMMARY_PROVIDER: z.enum(['mock', 'aliyun']).default('mock'),
+  ALIYUN_SUMMARY_MODEL: z.string().default('qwen-plus'),
+  SUMMARY_MAX_MESSAGES: z.coerce.number().int().min(1).max(5_000).default(1_000),
+  SUMMARY_MAX_INPUT_CHARACTERS: z.coerce.number().int().min(10_000).max(2_000_000).default(500_000),
+  SUMMARY_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
+  SUMMARY_GENERATION_STALE_MS: z.coerce.number().int().min(30_000).max(900_000).default(180_000),
   ALIYUN_TTS_VOICE_ZH: optionalString,
   ALIYUN_TTS_VOICE_RU: optionalString,
   ALIYUN_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(30_000),
@@ -117,6 +124,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     }
     if (parsed.TRANSLATION_PROVIDER === 'aliyun' && !parsed.ALIYUN_API_KEY) {
       throw new Error('ALIYUN_API_KEY is required when TRANSLATION_PROVIDER=aliyun');
+    }
+    if (parsed.SUMMARY_PROVIDER !== 'aliyun') {
+      throw new Error('Production requires SUMMARY_PROVIDER=aliyun');
     }
     if (
       parsed.TRANSLATION_PROVIDER === 'aliyun' &&

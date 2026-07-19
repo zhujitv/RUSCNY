@@ -69,6 +69,8 @@ void main() {
     expect(
         requests[1].path, endsWith('/conversations/conversation%2Fa/summary'));
     expect(requests[1].data, isEmpty);
+    expect(requests[1].headers['Idempotency-Key'], isNotEmpty);
+    expect(requests[1].receiveTimeout, const Duration(seconds: 130));
   });
 
   test('loads eligible email recipients and sends an idempotent distribution',
@@ -85,6 +87,7 @@ void main() {
               ? {
                   'summaryRevision': 4,
                   'isStale': false,
+                  'isApproved': true,
                   'items': [
                     {
                       'participantId': 'participant-a',
@@ -140,6 +143,7 @@ void main() {
     );
 
     expect(recipients.summaryRevision, 4);
+    expect(recipients.isApproved, isTrue);
     expect(recipients.items.single.emailHint, 'i***n@example.test');
     expect(distribution.sentCount, 1);
     expect(requests[1].headers['Idempotency-Key'], 'distribution-request-a');
@@ -151,6 +155,60 @@ void main() {
       requests[2].path,
       '/conversations/conversation%2Fa/summary/email-distributions/distribution-a',
     );
+  });
+
+  test('approves the exact summary revision through the dedicated endpoint',
+      () async {
+    RequestOptions? request;
+    final adapter = _SummaryAdapter((options) {
+      request = options;
+      return ResponseBody.fromString(
+        jsonEncode({
+          'ok': true,
+          'data': {
+            'summary': {
+              'summary': '已复核纪要',
+              'participantRoster': [],
+              'coreDiscussion': [],
+              'partyViews': [],
+              'confirmedItems': [],
+              'actionItems': [],
+              'openQuestions': [],
+              'sourceMaxSequence': 5,
+              'sourceMessageCount': 5,
+              'revision': 3,
+              'approvedRevision': 3,
+              'approvedAt': '2026-07-19T12:00:00Z',
+              'isStale': false,
+              'generatedAt': '2026-07-19T11:30:00Z',
+            },
+          },
+        }),
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['application/json'],
+        },
+      );
+    });
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test/v1'))
+      ..httpClientAdapter = adapter;
+    final repository = ConversationRepository(
+      ApiClient(
+        baseUrl: 'https://api.example.test/v1',
+        tokenStore: SecureTokenStore(),
+        dio: dio,
+      ),
+    );
+
+    final approved = await repository.approveSummary('conversation/a', 3);
+
+    expect(approved.isApproved, isTrue);
+    expect(request?.method, 'POST');
+    expect(
+      request?.path,
+      endsWith('/conversations/conversation%2Fa/summary/approve'),
+    );
+    expect(request?.data, {'revision': 3});
   });
 }
 

@@ -22,11 +22,11 @@
 
 当前开发环境已知：
 
-- 2026-07-19 当前工作区已通过后端 `build`、`typecheck`、Prisma Client 生成、schema validate 与从空模型生成 schema SQL diff。GitHub CI 已在隔离的 PostgreSQL 16 上从空库成功应用全部 16 个正式迁移。
-- 后端单元测试：30 个测试文件、196/196 通过，新增覆盖统一 `USER` 注册、旧 HOST/CUSTOMER Token 滚动兼容以及旧客户端 role 输入不可提权；纪要邮件/供应商/模板专项仍为 15/15。客户官网主脚本、账号脚本、Admin、Reset、H5 五个 JavaScript 文件均通过 `node --check`。客户官网账号注册/登录与 H5 安全回归合计 11/11 通过，并断言账号页不再显示或提交账号类型；官网、账号页/别名、法律页面、静态资源、`no-store`、CSP、robots 和 sitemap 也纳入 Fastify 路由单测。本轮未重跑 coverage，旧覆盖率数字不再作为当前代码证据。
+- 2026-07-19 当前工作区已通过后端 `build`、`typecheck`、Prisma Client 生成、schema validate 与从空模型生成 schema SQL diff。当前共有 19 个正式迁移；GitHub CI 的现有证据只覆盖当时的前 16 个，新迁移必须在提交后的 CI PostgreSQL 任务中重新应用验证。
+- 后端单元测试：34 个测试文件、228/228 通过，覆盖统一 `USER` 注册、旧 HOST/CUSTOMER Token 滚动兼容、旧客户端 role 输入不可提权，以及 AI 纪要的来源引用、提示注入边界、模型审计、幂等生成、陈旧任务接管、生成期间竞态、主持人批准和未批准禁止邮件分发。客户官网主脚本、账号脚本、Admin、Reset、H5 五个 JavaScript 文件均通过 `node --check`。客户官网账号注册/登录与 H5 安全回归合计 11/11 通过，并断言账号页不再显示或提交账号类型；官网、账号页/别名、法律页面、静态资源、`no-store`、CSP、robots 和 sitemap 也纳入 Fastify 路由单测。本轮未重跑 coverage，旧覆盖率数字不再作为当前代码证据。
 - GitHub CI 已在 PostgreSQL 16 上通过当前加固版 API/Socket.IO 集成套件 13/13，包含 1 Host + 4 中文注册用户 + 1 俄语临时用户、权限隔离、并发、邀请、移出、断线补拉和结束后只读。CI 提供了 Redis 服务，但未启动两个 API 副本，不能外推为 Redis 跨实例已验证。
 - `npm audit --omit=dev --json` 已成功执行：167 个生产依赖，0 个 low/moderate/high/critical 已知漏洞。
-- 移动端使用 Flutter `3.44.6` / Dart `3.12.2`；本地 `dart analyze lib test` 为 0 issues，GitHub CI 中 `flutter analyze` 为 0 issues，`flutter test` 51/51 通过，包含中文注册页无账号类型选择、俄文登录/访客界面和统一 `USER` 模型解析。中文本地路径下的 Flutter 包装命令问题保留为工具环境限制，不再是 CI 发布阻断。
+- 移动端上一版使用 Flutter `3.44.6` / Dart `3.12.2` 完成过本地 `dart analyze lib test` 0 issues和 GitHub CI `flutter analyze` 0 issues、`flutter test` 51/51。当前工作区新增了 AI 生成幂等键、批准按钮和分发前批准状态拦截，但本机没有 Flutter/Dart 命令，尚未对这批最新改动重跑 analyzer/test；必须由下一次 CI 关闭。
 - Android debug APK 已使用 `API_BASE_URL`/`SOCKET_URL=https://www.ruscny.net` 和 `APP_LINK_HOST=www.ruscny.net` 在本地重新构建，merged manifest 的 HTTPS App Link host 已核验，当前 SHA-256 为 `4eecc8ad1f153d3cd3281900ab61e239fe3045781d69c3202fdb4f019104854d`。GitHub CI 另成功构建 Android API 36 debug APK 和无签名 iOS Simulator `Runner.app`。正式 API 尚未在该域名上线，因此这些内部产物仍不能作为生产登录验收包；AAB/IPA、发布签名、TestFlight 和真机安装仍未执行。
 - 正式域名已确定为 `www.ruscny.net`，但 DNS、TLS 和生产服务尚未在本轮验证；阿里云生产凭据及 Apple/Google 开发者账号未提供，真实 ASR→MT→TTS、App Link/Universal Link 托管和 TestFlight 尚未执行。
 - 本地单元/CI 使用 mock provider；mock 通过只证明编排与隔离，不证明中俄翻译质量。生产配置为 mock 会拒绝启动。
@@ -55,9 +55,9 @@ Node version: v22.23.1
 Prisma Client generated: PASS (v6.19.3 in current install)
 Prisma schema validate: PASS
 Build / typecheck: PASS / PASS
-Unit tests: 196 passed / 0 failed / 0 skipped (30 files)
+Unit tests: 228 passed / 0 failed / 0 skipped (34 files)
 Coverage: NOT RE-RUN for the current code
-PostgreSQL migrations: PASS in GitHub CI, 16/16 applied from an empty PostgreSQL 16 database
+PostgreSQL migrations: LOCAL schema/diff PASS for 19 migrations; GitHub CI evidence currently covers only 16/16
 PostgreSQL/Socket.IO integration: PASS in GitHub CI, 13/13
 Redis adapter multi-instance integration: NOT RUN
 GitHub CI execution: PASS for commit 5d1263e18ca2046b5b539a62c2db515d7f47686f (https://github.com/zhujitv/RUSCNY/actions/runs/29676541364)
@@ -128,7 +128,7 @@ Current temporary APK SHA-256: 4eecc8ad1f153d3cd3281900ab61e239fe3045781d69c3202
 | WS-02 | 乱序/重复事件 | messageId 去重，sequence 正确 | 未执行 | |
 | END-01 | Host 结束会议 | 双端只读，后续上传被服务端拒绝 | 未执行 | |
 | HISTORY-01 | Host 筛选/详情/复制/导出 | 只返回授权会议，TXT/Markdown 含时间/姓名/公司/语言并可按发言者整理 | 自动化通过 | Flutter exporter 单测 + PostgreSQL API 集成测试 |
-| SUMMARY-01 | 生成/读取会议纪要 | 保留参会人员和逐条发言归属，按 conversationId 隔离 | 自动化通过 | 真实 PostgreSQL 集成测试 |
+| SUMMARY-01 | AI 生成/读取会议纪要 | 保留参会人员和逐条发言归属，按 conversationId 隔离；模型结论引用来源 sequence，生成期间变化不保存 | 自动化通过 | 阿里云真实账号与中俄商务会议质量验收待执行 |
 | SUMMARY-EMAIL-01 | 主持人选择参会者逐人发送纪要 | 收件地址由服务端关系解析；只返回脱敏提示；逐人发送；保存每位收件人的成功/失败状态 | 自动化通过 | Resend 发信域、真实中俄邮箱、退信与垃圾邮件待预发布验证 |
 | SUMMARY-EMAIL-02 | 纪要过期/纠错、非主持人、已移出/无邮箱人员尝试发送 | 创建任务与每封发信前重验；拒绝或标记不可选，不泄露其他会议及完整邮箱 | 自动化通过 | 真实 PostgreSQL 并发与供应商限流待测 |
 | SUMMARY-EMAIL-03 | API 返回后进程重启、相同幂等键并发、陈旧发送 claim | PostgreSQL worker 恢复；同请求收敛；超出供应商幂等安全窗口不自动重放 | 自动化通过 | 两个真实 API 副本、故障注入和 Resend 真实幂等行为待测 |

@@ -482,6 +482,10 @@ final class _ConversationDetailPageState
         _snack('会议内容已变化，请重新生成会议纪要后再发送');
         return;
       }
+      if (!recipients.isApproved) {
+        _snack('请先查看并确认当前会议纪要，再进行邮件分发');
+        return;
+      }
       final selected = recipients.items
           .where((item) => item.eligible)
           .map((item) => item.participantId)
@@ -678,6 +682,15 @@ final class _ConversationDetailPageState
                       style: TextStyle(color: Colors.orange),
                     ),
                     const SizedBox(height: 12),
+                  ] else if (!summary.isApproved) ...[
+                    const AppText(
+                      'AI 生成内容尚未由主持人确认，暂不能邮件分发',
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                   ],
                   const AppText(
                     '参会人员',
@@ -709,6 +722,22 @@ final class _ConversationDetailPageState
             ),
           ),
           actions: [
+            if (isOwner &&
+                conversation.status == ConversationStatus.ended &&
+                summary.isStale == false &&
+                !summary.isApproved)
+              FilledButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  try {
+                    await repository.approveSummary(conversation.id, summary.revision);
+                    if (mounted) _snack('会议纪要已确认，可以邮件分发');
+                  } catch (error) {
+                    if (mounted) _snack(readableError(error));
+                  }
+                },
+                child: const AppText('确认内容无误'),
+              ),
             if (isOwner &&
                 conversation.status == ConversationStatus.ended &&
                 !regenerate)

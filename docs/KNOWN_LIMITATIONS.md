@@ -4,7 +4,7 @@
 
 ## 1. 当前交付状态
 
-本仓库是多人会议版本的工程交付，不等同于已经上架的生产 App。2026-07-19 当前工作区通过客户官网账号注册/登录与 H5 Web 回归 11/11、Prisma generate/validate/diff、后端 build/typecheck、196/196 单元测试和生产依赖审计（0 个已知漏洞）。GitHub CI 已通过全部 16 个 PostgreSQL 迁移、13/13 API/Socket 集成测试、生产 Docker 镜像、Flutter analyzer、51/51 Flutter 测试、Android debug APK 和 iOS Simulator App 构建。API、Socket 和 App Link 配置指向最终域名 `www.ruscny.net`，但 DNS、HTTPS、同源反向代理和正式服务部署仍未验收。当前仍缺 Apple/Google 发布账号、release 签名材料、真机矩阵、Redis 两个 API 副本的跨实例故障演练、阿里云生产凭据及已验证的邮件发信域。
+本仓库是多人会议版本的工程交付，不等同于已经上架的生产 App。2026-07-19 当前工作区通过客户官网账号注册/登录与 H5 Web 回归 11/11、Prisma generate/validate/diff、后端 build/typecheck、228/228 单元测试和生产依赖审计（0 个已知漏洞）。当前工作区共有 19 个 PostgreSQL 迁移；现有 GitHub CI 证据只覆盖当时的前 16 个迁移、13/13 API/Socket 集成测试、生产 Docker 镜像、Flutter analyzer、51/51 Flutter 测试、Android debug APK 和 iOS Simulator App 构建。最新 AI 纪要迁移与移动端批准流程仍需提交后 CI 复验。API、Socket 和 App Link 配置指向最终域名 `www.ruscny.net`，但 DNS、HTTPS、同源反向代理和正式服务部署仍未验收。当前仍缺 Apple/Google 发布账号、release 签名材料、真机矩阵、Redis 两个 API 副本的跨实例故障演练、阿里云生产凭据及已验证的邮件发信域。
 
 下列项目必须在发布负责人提供真实环境后关闭：
 
@@ -13,7 +13,7 @@
 | 阻断 | 已有当前正式域名配置的 debug APK，但没有 release APK/AAB/IPA/TestFlight | debug 包不能代表商店发布签名、生产服务或真机验收，不满足生产交付标准 | 使用发布签名生成正式产物，记录哈希/build/证书并真机安装验证 |
 | 阻断 | 未做 Android↔iPhone 真机互通 | 麦克风、播放、前后台与重连未证明 | 完成测试报告真机矩阵 |
 | 阻断 | 未用生产账号验证中/俄 ASR→MT→TTS | mock 不能证明准确率、音色或延迟 | 真实账号双方向语料和性能验收 |
-| 阻断 | 全部 16 个迁移与 13/13 API/Socket 集成场景已在 CI PostgreSQL 通过，但 Redis adapter 尚未以两个 API 副本执行跨实例与故障恢复验证 | 单实例真实事务和迁移已证明，但不能代替跨实例广播、断连与限流证据 | 用 Redis 启动至少两个 API 副本，执行广播、移出、限流和 Redis 短断故障注入 |
+| 阻断 | 前 16 个迁移与 13/13 API/Socket 集成场景已在 CI PostgreSQL 通过；当前新增的 3 个迁移及 Redis adapter 尚未按最新工作区以两个 API 副本复验 | 旧版单实例真实事务和迁移已证明，但不能代替当前全部 19 个迁移、跨实例广播、断连与限流证据 | 提交后从空 PostgreSQL 应用 19/19 迁移，并用 Redis 启动至少两个 API 副本执行广播、移出、限流和短断故障注入 |
 | 阻断 | Flutter `pubspec.lock` 已生成并在 CI 强制，但 CocoaPods `Podfile.lock` 仍缺失 | Dart 依赖已锁定，iOS 原生传递依赖仍可漂移 | 用固定 macOS/CocoaPods 解析并提交 `Podfile.lock`，再让 CI 以 lockfile/deployment 模式安装 |
 | 阻断 | 正式域名和 association 文件未托管 | App Link/Universal Link 不会被系统验证 | 正式 HTTPS 域名文件和冷/热启动测试通过 |
 | 阻断 | 隐私/协议仍含运营主体占位字段 | 不满足发布和透明度要求 | 法律审核并补齐主体、地域、期限、第三方 |
@@ -44,7 +44,7 @@
 - 每台设备明确绑定一个 Participant，能可靠保留“谁说了什么”；当前不支持多人共用同一麦克风时的自动说话人分离/声纹识别，也不支持重叠发言的自动拆分。
 - 不支持视频通话、Viewer、完整 CRM 或复杂会员付费。
 - 默认不长期保存完整原始录音，不提供录音回放。
-- 已提供按单次 `conversationId` 隔离的结构化会议纪要保存、读取与确定性整理；生产级生成式摘要的模型选择、质量评测和人工复核流程仍需在真实环境接入。
+- 已提供按单次 `conversationId` 隔离的结构化会议纪要保存、读取以及阿里云百炼通义千问 AI 整理；模型输出必须携带发言 sequence 依据并由服务端复验，主持人确认后才分发。当前仍需使用真实中俄商务会议完成模型质量、长会议容量、费用、地域和人工复核验收；AI 结果不能视为未经确认的事实。
 - 已提供主持人逐人选择并发送会议纪要的接口与 App 操作；当前记录邮件供应商“已受理/失败”，尚未接入 delivered、bounced、complained webhook，因此不能把 `SENT` 解释为收件人最终收到。生产上线还需验证发信子域、限流、退信、垃圾邮件和中俄邮件显示。
 - Push 通知仅预留；实时翻译必须依赖 Socket.IO，不依赖 APNs/FCM。
 - iPad 只做基础兼容，不承诺专门的大屏布局。

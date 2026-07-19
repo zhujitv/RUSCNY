@@ -6,8 +6,16 @@ const mocks = vi.hoisted(() => {
   const prisma = {
     $transaction: vi.fn(),
     participant: { findMany: vi.fn() },
+    user: { findUnique: vi.fn() },
     translationMessage: { findMany: vi.fn(), aggregate: vi.fn() },
-    conversationSummary: { upsert: vi.fn(), findUnique: vi.fn() },
+    conversationSummary: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    summaryGeneration: {
+      findUnique: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+    },
   };
   prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
   return {
@@ -116,6 +124,7 @@ beforeEach(async () => {
     status: 'ENDED',
   });
   mocks.prisma.participant.findMany.mockResolvedValue([participant]);
+  mocks.prisma.user.findUnique.mockResolvedValue({ legalPolicyVersion: '2026-07-19-ai-summary' });
   mocks.prisma.translationMessage.findMany.mockResolvedValue([message]);
   mocks.prisma.translationMessage.aggregate.mockResolvedValue({
     _max: { sequence: message.sequence, updatedAt: message.updatedAt },
@@ -123,6 +132,11 @@ beforeEach(async () => {
   });
   mocks.prisma.conversationSummary.upsert.mockImplementation(async ({ create }) => create);
   mocks.prisma.conversationSummary.findUnique.mockResolvedValue(null);
+  mocks.prisma.summaryGeneration.findUnique.mockResolvedValue(null);
+  mocks.prisma.summaryGeneration.count.mockResolvedValue(0);
+  mocks.prisma.summaryGeneration.create.mockResolvedValue({ id: 'generation-a' });
+  mocks.prisma.summaryGeneration.update.mockResolvedValue({ id: 'generation-a' });
+  mocks.prisma.summaryGeneration.updateMany.mockResolvedValue({ count: 1 });
   app = Fastify({ logger: false });
   app.setErrorHandler(async (error, _request, reply) => {
     if (error instanceof AppError) {
@@ -192,6 +206,7 @@ describe('server-attributed meeting summary', () => {
       sourceLatestMessageUpdatedAt: message.updatedAt,
       revision: 1,
     });
+    expect(mocks.prisma.summaryGeneration.create).not.toHaveBeenCalled();
     expect(mocks.getConversationForAuthInTransaction).toHaveBeenCalledWith(
       mocks.prisma,
       expect.objectContaining({ subjectId: 'host-a', sessionId: 'session-a' }),
@@ -211,6 +226,7 @@ describe('server-attributed meeting summary', () => {
     const response = await app!.inject({
       method: 'POST',
       url: '/v1/conversations/conversation-a/summary',
+      headers: { 'idempotency-key': 'summary-test-ended' },
       payload: {},
     });
 
@@ -218,6 +234,69 @@ describe('server-attributed meeting summary', () => {
     expect(response.json().code).toBe('SUMMARY_REQUIRES_ENDED_CONVERSATION');
     expect(mocks.prisma.participant.findMany).not.toHaveBeenCalled();
     expect(mocks.prisma.translationMessage.findMany).not.toHaveBeenCalled();
+    expect(mocks.prisma.conversationSummary.upsert).not.toHaveBeenCalled();
+  });
+
+  it('requires an idempotency key for AI generation', async () => {
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/v1/conversations/conversation-a/summary',
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(mocks.prisma.summaryGeneration.create).not.toHaveBeenCalled();
+  });
+
+  it('retires a stale active generation before accepting a new key', async () => {
+    mocks.prisma.summaryGeneration.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'generation-stale',
+        startedAt: new Date(Date.now() - 10 * 60_000),
+      });
+
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/v1/conversations/conversation-a/summary',
+      headers: { 'idempotency-key': 'summary-test-stale-takeover' },
+      payload: {},
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(mocks.prisma.summaryGeneration.update).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { id: 'generation-stale' },
+        data: expect.objectContaining({
+          status: 'FAILED',
+          activeKey: null,
+          errorCode: 'SUMMARY_GENERATION_STALE',
+        }),
+      }),
+    );
+    expect(mocks.prisma.summaryGeneration.create).toHaveBeenCalledOnce();
+  });
+
+  it('does not save an AI draft when a source message changes during generation', async () => {
+    mocks.prisma.translationMessage.findMany
+      .mockResolvedValueOnce([message])
+      .mockResolvedValueOnce([{
+        ...message,
+        confirmedSourceText: '整理期间确认的新原文',
+        updatedAt: new Date(message.updatedAt.getTime() + 1_000),
+      }]);
+
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/v1/conversations/conversation-a/summary',
+      headers: { 'idempotency-key': 'summary-test-race' },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().code).toBe('SUMMARY_SOURCE_CHANGED');
     expect(mocks.prisma.conversationSummary.upsert).not.toHaveBeenCalled();
   });
 
@@ -274,6 +353,40 @@ describe('server-attributed meeting summary', () => {
 
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json().data.summary.isStale).toBe(true);
+  });
+
+  it('lets only the current fresh revision be approved for distribution', async () => {
+    mocks.prisma.conversationSummary.findUnique.mockResolvedValueOnce({
+      id: 'summary-a',
+      conversationId: 'conversation-a',
+      sourceMaxSequence: 1,
+      sourceMessageCount: 1,
+      sourceLatestMessageUpdatedAt: message.updatedAt,
+      revision: 2,
+      approvedRevision: null,
+      approvedAt: null,
+    });
+    mocks.prisma.conversationSummary.update.mockImplementationOnce(async ({ data }) => ({
+      id: 'summary-a',
+      revision: 2,
+      ...data,
+    }));
+
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/v1/conversations/conversation-a/summary/approve',
+      payload: { revision: 2 },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(mocks.prisma.conversationSummary.update).toHaveBeenCalledWith({
+      where: { id: 'summary-a' },
+      data: expect.objectContaining({
+        approvedRevision: 2,
+        approvedByUserId: 'host-a',
+        approvedAt: expect.any(Date),
+      }),
+    });
   });
 });
 
