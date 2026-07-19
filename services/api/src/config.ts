@@ -107,8 +107,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
       throw new Error('Production DATABASE_URL must require TLS with sslmode=require or verify');
     }
     if (!parsed.REDIS_URL) throw new Error('REDIS_URL is required in production');
-    if (!parsed.REDIS_URL.startsWith('rediss://')) {
-      throw new Error('Production REDIS_URL must use rediss://');
+    if (!hasSecureRedisTransport(parsed.REDIS_URL)) {
+      throw new Error(
+        'Production REDIS_URL must use rediss:// or authenticated Railway private networking',
+      );
     }
     if (parsed.TRANSLATION_PROVIDER !== 'aliyun') {
       throw new Error('Production requires TRANSLATION_PROVIDER=aliyun');
@@ -168,6 +170,18 @@ function hasSecurePostgresTransport(value: string): boolean {
     return ['require', 'verify-ca', 'verify-full'].includes(
       (url.searchParams.get('sslmode') ?? '').toLowerCase(),
     );
+  } catch {
+    return false;
+  }
+}
+
+function hasSecureRedisTransport(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'rediss:') return true;
+    return url.protocol === 'redis:'
+      && url.hostname.endsWith('.railway.internal')
+      && url.password.length > 0;
   } catch {
     return false;
   }

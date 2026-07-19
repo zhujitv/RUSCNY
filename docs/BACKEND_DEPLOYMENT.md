@@ -5,7 +5,7 @@
 - API：`services/api`，交付工具链固定 Node.js `22.23.1` / npm `10.9.x`，使用 TypeScript、Fastify、Socket.IO。
 - HTTP 前缀：`/v1`；Socket.IO path：`/socket.io`。
 - 数据库：PostgreSQL 16，Prisma 管理 schema 与迁移。
-- Redis：Redis 7，用于 Socket.IO 跨实例 pub/sub、实时就绪检查和 Fastify 跨实例限流；永久消息与幂等权威状态仍以 PostgreSQL 为准。
+- Redis：Redis 7，用于 Socket.IO 跨实例 pub/sub、实时就绪检查和 Fastify 跨实例限流；永久消息与幂等权威状态仍以 PostgreSQL 为准。Railway 官方 Redis 模板在项目私网内提供带密码的 `redis://*.railway.internal` 连接，应用仅对此受控私网后缀放行明文传输；任何公网或其他主机仍必须使用 `rediss://`。
 - 音频：后端校验并下载阿里云 TTS 临时资产；开发写本地目录，生产强制写私有 S3 兼容存储，数据库只留 asset ref，对外返回需短期签名与 Bearer 双重校验的内部 URL。
 - 翻译：开发/CI 使用 mock；生产只允许服务端阿里云适配器，mock 配置会拒绝启动。
 - 邮件：开发/CI 使用 mock；生产使用 Resend 逐人发送会议纪要，API Key 只在服务端，发信子域需完成 SPF/DKIM 验证。
@@ -60,7 +60,7 @@ Compose 从仓库根目录构建 `services/api/Dockerfile`，`migrate` one-shot 
 | `LOG_LEVEL` | 是 | 建议 `info`，不得打印正文/Secret |
 | `TRUST_PROXY=true` | 反向代理后是 | 正确识别协议/IP；只信任受控代理 |
 | `DATABASE_URL` | 是 | PostgreSQL 私网 TLS 连接串 |
-| `REDIS_URL` | 生产是 | Redis 私网 TLS/认证连接串；生产配置校验缺失即拒绝启动 |
+| `REDIS_URL` | 生产是 | 优先使用 Redis TLS/认证连接串；Railway 可使用带密码的 `redis://*.railway.internal` 私网引用，其他明文地址会被拒绝 |
 | `RATE_LIMIT_NAMESPACE` | 是 | Redis 限流 key 前缀；开发、预发布、生产必须使用不同值 |
 | `JWT_ACCESS_SECRET` | 是 | 独立高熵密钥，至少 32 字节 |
 | `JWT_REFRESH_SECRET` | 是 | 与 Access Secret 不同 |

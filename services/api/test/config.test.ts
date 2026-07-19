@@ -103,7 +103,7 @@ describe('production configuration guards', () => {
     expect(parsed.ALIYUN_API_KEY).toBe('server-side-key');
   });
 
-  it('rejects plaintext PostgreSQL and Redis transports in production', () => {
+  it('rejects plaintext PostgreSQL and public Redis transports in production', () => {
     const complete = {
       NODE_ENV: 'production',
       TRANSLATION_PROVIDER: 'aliyun',
@@ -119,7 +119,24 @@ describe('production configuration guards', () => {
     expect(() => loadConfig({
       ...complete,
       REDIS_URL: 'redis://redis.internal:6379',
-    })).toThrow('Production REDIS_URL must use rediss://');
+    })).toThrow('Production REDIS_URL must use rediss:// or authenticated Railway private networking');
+    expect(() => loadConfig({
+      ...complete,
+      REDIS_URL: 'redis://redis.railway.internal:6379',
+    })).toThrow('Production REDIS_URL must use rediss:// or authenticated Railway private networking');
+  });
+
+  it('accepts authenticated Redis on Railway private networking', () => {
+    const parsed = loadConfig({
+      NODE_ENV: 'production',
+      TRANSLATION_PROVIDER: 'aliyun',
+      ALIYUN_API_KEY: 'server-side-key',
+      ALIYUN_TTS_VOICE_ZH: 'zh-voice',
+      ALIYUN_TTS_VOICE_RU: 'ru-voice',
+      ...productionSecrets,
+      REDIS_URL: 'redis://default:secret@redis.railway.internal:6379',
+    });
+    expect(parsed.REDIS_URL).toBe('redis://default:secret@redis.railway.internal:6379');
   });
 
   it('accepts PostgreSQL certificate verification modes in production', () => {

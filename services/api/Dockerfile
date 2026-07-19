@@ -38,3 +38,19 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "services/api/dist/server.js"]
+
+# Railway runs the pre-deploy migration command inside the final image. Keep a
+# dedicated platform target with the Prisma CLI while the normal runtime target
+# above remains minimal for CI, Compose and immutable registry releases.
+FROM dependencies AS railway
+ENV NODE_ENV=production
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/services/api/dist ./services/api/dist
+COPY apps/admin-web ./apps/admin-web
+COPY deploy/deep-links/site/join ./deploy/deep-links/site/join
+RUN mkdir -p /app/storage/audio && chown -R node:node /app/storage
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+CMD ["node", "services/api/dist/server.js"]
