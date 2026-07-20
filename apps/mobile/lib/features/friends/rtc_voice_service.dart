@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/services.dart';
 
@@ -11,22 +12,36 @@ final class RtcVoiceState {
     this.code,
     this.message,
     this.phase,
+    this.category,
   });
 
   final String value;
   final int? code;
   final String? message;
   final String? phase;
+  final String? category;
 
   bool get isJoined => value == 'joined';
   bool get isError => value == 'error';
 
   String get userMessage {
     if (!isError) return value;
-    final suffix = code == null ? '' : '（错误码 $code）';
-    return '语音连接失败$suffix，请重试';
+    if (category == 'authentication' ||
+        category == 'credential' ||
+        phase == 'sync_join' ||
+        phase == 'preflight') {
+      return '语音服务鉴权失败，请重新拨打';
+    }
+    if (category == 'account') return '语音服务账号不可用，请联系管理员';
+    if (category == 'network') return '语音网络连接失败，请检查网络后重试';
+    return '语音连接失败，请重试';
   }
 }
+
+String rtcJoinFailureMessage(PlatformException error) => switch (error.code) {
+      'RTC_JOIN_REJECTED' || 'INVALID_RTC_CREDENTIAL' => '语音服务鉴权失败，请重新拨打',
+      _ => '语音连接失败，请重试',
+    };
 
 final class RtcVoiceService {
   RtcVoiceService() {
@@ -49,10 +64,27 @@ final class RtcVoiceService {
     if (credential.expiresAt <= DateTime.now().millisecondsSinceEpoch ~/ 1000) {
       throw const AppException('RTC 鉴权已过期，请重新拨打');
     }
-    await _channel.invokeMethod<int>('join', {
-      ...credential.toJson(),
-      'displayName': displayName,
-    });
+    try {
+      await _channel.invokeMethod<int>('join', {
+        ...credential.toJson(),
+        'displayName': displayName,
+      });
+    } on PlatformException catch (error) {
+      final details = error.details;
+      final phase = details is Map ? details['phase']?.toString() : null;
+      final rawCode = details is Map ? details['code']?.toString() : null;
+      developer.log(
+        'join rejected phase=${phase ?? 'unknown'} code=${rawCode ?? 'unavailable'}',
+        name: 'rtc.voice',
+      );
+      throw AppException(
+        rtcJoinFailureMessage(error),
+        code: error.code == 'RTC_JOIN_REJECTED' ||
+                error.code == 'INVALID_RTC_CREDENTIAL'
+            ? 'RTC_AUTH_FAILED'
+            : 'RTC_JOIN_FAILED',
+      );
+    }
   }
 
   Future<void> leave() => _channel.invokeMethod<void>('leave');
@@ -84,16 +116,27 @@ final class RtcVoiceService {
       final arguments = call.arguments as Map;
       final state = arguments['state']?.toString();
       if (state != null) {
+        final code = switch (arguments['code']) {
+          final int value => value,
+          final num value => value.toInt(),
+          _ => null,
+        };
+        final phase = arguments['phase']?.toString();
+        final category = arguments['category']?.toString();
+        if (state == 'error') {
+          developer.log(
+            'native state error phase=${phase ?? 'unknown'} '
+            'category=${category ?? 'unknown'} code=${code ?? 'unavailable'}',
+            name: 'rtc.voice',
+          );
+        }
         _states.add(
           RtcVoiceState(
             value: state,
-            code: switch (arguments['code']) {
-              final int value => value,
-              final num value => value.toInt(),
-              _ => null,
-            },
+            code: code,
             message: arguments['message']?.toString(),
-            phase: arguments['phase']?.toString(),
+            phase: phase,
+            category: category,
           ),
         );
       }

@@ -53,9 +53,19 @@ vi.mock('../src/services/aliyun-rtc.js', () => ({
   createAliyunRtcCredential: vi.fn(async (channelId: string, userId: string) => ({
     channelId,
     userId,
-    token: '000-token',
+    token: Buffer.from(JSON.stringify({
+      appid: 'artc-app',
+      channelid: channelId,
+      userid: userId,
+      nonce: '',
+      timestamp: 1_900_000_000,
+      token: 'a'.repeat(64),
+    }), 'utf8').toString('base64'),
     expiresAt: 1_900_000_000,
   })),
+}));
+vi.mock('../src/services/aliyun-realtime-translation.js', () => ({
+  realtimeTranslationAvailable: vi.fn(async () => true),
 }));
 
 import { AppError } from '../src/errors.js';
@@ -159,6 +169,28 @@ describe('friend call state and device ownership', () => {
     });
     expect(response.statusCode).toBe(404);
     expect(response.json().code).toBe('ACTIVE_FRIEND_CALL_NOT_FOUND');
+  });
+
+  it('returns matching ARTC fields without exposing the server AppKey', async () => {
+    mocks.friendCall.findFirst.mockResolvedValue({ channelId: 'fc_channel-1' });
+    const response = await app!.inject({
+      method: 'POST',
+      url: '/v1/friend-calls/call-1/rtc-credential',
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    const credential = response.json().data.credential as {
+      channelId: string;
+      userId: string;
+      token: string;
+      expiresAt: number;
+    };
+    const payload = JSON.parse(Buffer.from(credential.token, 'base64').toString('utf8'));
+    expect(payload.channelid).toBe(credential.channelId);
+    expect(payload.userid).toBe(credential.userId);
+    expect(payload.timestamp).toBe(credential.expiresAt);
+    expect(response.body).not.toContain('server-secret');
+    expect(response.body).not.toContain('appKey');
   });
 
   it('refreshes an active call heartbeat only for the owning device', async () => {

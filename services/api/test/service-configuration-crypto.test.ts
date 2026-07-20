@@ -1,4 +1,4 @@
-import { inflateSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { decryptSecret, encryptSecret } from '../src/lib/crypto.js';
 import { generateAliyunRtcToken } from '../src/services/aliyun-rtc.js';
@@ -38,43 +38,63 @@ describe('administrator service endpoint allowlist', () => {
 });
 
 describe('Aliyun RTC server token', () => {
-  it('builds a deterministic DingRTC 3.0 AppToken without returning the AppKey', () => {
+  it('builds the ARTC Base64 JSON token and keeps AppKey server-only', () => {
     const input = {
       appId: 'app123',
       appKey: 'server-only-secret',
-      channelId: 'fc-channel',
-      userId: 'user1',
-      issueTimestamp: 1_700_000_000,
+      channelId: 'fc-channel_1',
+      userId: 'user_1',
       expiresAt: 1_700_003_600,
-      salt: 123_456_789,
     };
     const token = generateAliyunRtcToken(input);
     expect(token).toBe(generateAliyunRtcToken(input));
-    expect(token).toBe(
-      '000eJxjYGBQqOvgC7ulnRORkML8W3ytHbdRuGf6FvXS7z+7/nd/va9tx8DAwJZYUGBoZJwa/JGBPfqsaGrwfwEGBgautGTd5IzEvLzUHAYGBtbS4tQiQ0YGBgZmEDEKhgIAAI8pG1E=',
-    );
-    expect(token).toMatch(/^000/);
     expect(token).not.toContain(input.appKey);
-    const payload = inflateSync(Buffer.from(token.slice(3), 'base64'));
-    expect(payload.readInt32BE(0)).toBe(32);
-    expect(payload.length).toBe(512);
+    const payload = JSON.parse(Buffer.from(token, 'base64').toString('utf8')) as {
+      appid: string;
+      channelid: string;
+      userid: string;
+      nonce: string;
+      timestamp: number;
+      token: string;
+      appKey?: string;
+    };
+    expect(payload).toEqual({
+      appid: input.appId,
+      channelid: input.channelId,
+      userid: input.userId,
+      nonce: '',
+      timestamp: input.expiresAt,
+      token: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(payload.appKey).toBeUndefined();
+    expect(payload.timestamp).toBe(input.expiresAt);
+    expect(payload.token).toBe(createHash('sha256').update(
+      `${input.appId}${input.appKey}${input.channelId}${input.userId}${payload.nonce}${payload.timestamp}`,
+      'utf8',
+    ).digest('hex'));
   });
 
-  it('rejects channel and user identifiers that DingRTC 3.0 cannot join', () => {
+  it('accepts ARTC identifiers with hyphens and underscores up to 64 characters', () => {
     const input = {
       appId: 'app123',
       appKey: 'server-only-secret',
       channelId: 'fc_channel',
-      userId: 'user1',
-      issueTimestamp: 1_700_000_000,
+      userId: 'user_1',
       expiresAt: 1_700_003_600,
-      salt: 123_456_789,
     };
-    expect(() => generateAliyunRtcToken(input)).toThrow(/channelId/);
+    expect(() => generateAliyunRtcToken(input)).not.toThrow();
     expect(() => generateAliyunRtcToken({
       ...input,
-      channelId: 'fc-channel',
-      userId: 'user_1',
+      channelId: 'a'.repeat(64),
+      userId: 'b'.repeat(64),
+    })).not.toThrow();
+    expect(() => generateAliyunRtcToken({
+      ...input,
+      channelId: 'a'.repeat(65),
+    })).toThrow(/channelId/);
+    expect(() => generateAliyunRtcToken({
+      ...input,
+      userId: 'user.1',
     })).toThrow(/userId/);
   });
 });

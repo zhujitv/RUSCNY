@@ -27,8 +27,8 @@ export const serviceConfigurationDefinitions = {
   ALIYUN_SUMMARY_MODEL: text('会议纪要模型', 'ALIYUN_AI', () => config.ALIYUN_SUMMARY_MODEL),
   ALIYUN_TTS_VOICE_ZH: text('中文语音', 'ALIYUN_AI', () => config.ALIYUN_TTS_VOICE_ZH),
   ALIYUN_TTS_VOICE_RU: text('俄文语音', 'ALIYUN_AI', () => config.ALIYUN_TTS_VOICE_RU),
-  ALIYUN_RTC_APP_ID: text('RTC AppID', 'ALIYUN_RTC', () => config.ALIYUN_RTC_APP_ID),
-  ALIYUN_RTC_APP_KEY: secret('RTC AppKey', 'ALIYUN_RTC', () => config.ALIYUN_RTC_APP_KEY),
+  ALIYUN_RTC_APP_ID: text('Live+ ARTC AppID', 'ALIYUN_RTC', () => config.ALIYUN_RTC_APP_ID),
+  ALIYUN_RTC_APP_KEY: secret('Live+ ARTC AppKey', 'ALIYUN_RTC', () => config.ALIYUN_RTC_APP_KEY),
   ALIYUN_RTC_TOKEN_TTL_SECONDS: integer(
     'RTC 令牌有效期（秒）', 'ALIYUN_RTC', () => String(config.ALIYUN_RTC_TOKEN_TTL_SECONDS), 300, 86_400,
   ),

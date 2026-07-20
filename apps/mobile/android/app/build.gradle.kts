@@ -73,7 +73,8 @@ flutter {
 }
 
 dependencies {
-    // AliRTC 3.0 / DingRTC native audio engine. App credentials are fetched
-    // from our server at call time and are never compiled into the APK.
+    // ApsaraVideo Real-time Communication (ARTC) native audio engine. Its
+    // matching Live+ ARTC credentials stay server-side and are never compiled
+    // into the APK.
     implementation("com.aliyun.aio:AliVCSDK_ARTC:7.11.0")
 }

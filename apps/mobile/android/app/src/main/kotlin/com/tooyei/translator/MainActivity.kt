@@ -11,6 +11,8 @@ import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.os.Bundle
+import android.util.Base64
+import android.util.Log
 import com.alivc.rtc.AliRtcEngine
 import com.alivc.rtc.AliRtcEngineEventListener
 import io.flutter.embedding.android.FlutterActivity
@@ -19,8 +21,20 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.min
+import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
+    private data class ArtcTokenValidation(
+        val valid: Boolean = false,
+        val timestamp: Long? = null,
+        val channelMatches: Boolean = false,
+        val userMatches: Boolean = false,
+        val expiryMatches: Boolean = false,
+        val unexpired: Boolean = false,
+        val structureValid: Boolean = false,
+        val reason: String,
+    )
+
     private var rtcEngine: AliRtcEngine? = null
     private var channel: MethodChannel? = null
     private var audioCueChannel: MethodChannel? = null
@@ -284,13 +298,74 @@ class MainActivity : FlutterActivity() {
         val userId = arguments?.get("userId") as? String
         val token = arguments?.get("token") as? String
         val displayName = arguments?.get("displayName") as? String
-        if (listOf(channelId, userId, token, displayName).any { it.isNullOrBlank() }) {
+        val expiresAt = (arguments?.get("expiresAt") as? Number)?.toLong()
+        if (listOf(channelId, userId, token, displayName).any { it.isNullOrBlank() } || expiresAt == null) {
             result.error("INVALID_RTC_CREDENTIAL", "RTC credential is incomplete", null)
             return
         }
-        shutdownRtc {
-            startJoin(channelId!!, userId!!, token!!, displayName!!, result)
+        val validation = validateArtcToken(token!!, channelId!!, userId!!, expiresAt)
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC credential validation " +
+                "sdkVersion=${AliRtcEngine.getSdkVersion()} " +
+                "tokenLength=${token.length} " +
+                "expiresAt=${validation.timestamp ?: expiresAt} " +
+                "channelMatches=${validation.channelMatches} " +
+                "userMatches=${validation.userMatches} " +
+                "expiryMatches=${validation.expiryMatches} " +
+                "unexpired=${validation.unexpired} " +
+                "structureValid=${validation.structureValid}",
+        )
+        if (!validation.valid) {
+            result.error(
+                "INVALID_RTC_CREDENTIAL",
+                "ARTC credential validation failed",
+                mapOf("phase" to "preflight", "reason" to validation.reason),
+            )
+            return
         }
+        shutdownRtc {
+            startJoin(channelId, userId, token, displayName!!, result)
+        }
+    }
+
+    private fun validateArtcToken(
+        token: String,
+        channelId: String,
+        userId: String,
+        expiresAt: Long,
+    ): ArtcTokenValidation = try {
+        val decoded = Base64.decode(token, Base64.DEFAULT)
+        val payload = JSONObject(String(decoded, Charsets.UTF_8))
+        val timestamp = payload.getLong("timestamp")
+        val channelMatches = payload.optString("channelid") == channelId
+        val userMatches = payload.optString("userid") == userId
+        val expiryMatches = timestamp == expiresAt
+        val unexpired = timestamp > System.currentTimeMillis() / 1_000
+        val signature = payload.optString("token")
+        val structureValid =
+            payload.optString("appid").isNotBlank() &&
+                payload.optString("nonce") == "" &&
+                signature.matches(Regex("^[a-f0-9]{64}$"))
+        ArtcTokenValidation(
+            valid = channelMatches && userMatches && expiryMatches && unexpired && structureValid,
+            timestamp = timestamp,
+            channelMatches = channelMatches,
+            userMatches = userMatches,
+            expiryMatches = expiryMatches,
+            unexpired = unexpired,
+            structureValid = structureValid,
+            reason = when {
+                !channelMatches -> "channel_mismatch"
+                !userMatches -> "user_mismatch"
+                !expiryMatches -> "expiry_mismatch"
+                !unexpired -> "expired"
+                !structureValid -> "invalid_structure"
+                else -> "ok"
+            },
+        )
+    } catch (_: Exception) {
+        ArtcTokenValidation(reason = "decode_failed")
     }
 
     private fun startJoin(
@@ -344,6 +419,12 @@ class MainActivity : FlutterActivity() {
         engine.setRtcEngineEventListener(object : AliRtcEngineEventListener() {
             override fun onJoinChannelResult(resultCode: Int, channelName: String?, joinedUserId: String?, elapsed: Int) {
                 runOnUiThread {
+                    val category = classifyAsyncJoinFailure(resultCode)
+                    Log.i(
+                        RTC_DIAGNOSTIC_TAG,
+                        "ARTC onJoinChannelResult asyncResult=$resultCode category=$category " +
+                            "channelMatches=${channelName == channelId} userMatches=${joinedUserId == userId}",
+                    )
                     if (resultCode == 0) {
                         engine.requestAudioFocus()
                         engine.publishLocalAudioStream(true)
@@ -353,7 +434,8 @@ class MainActivity : FlutterActivity() {
                         mapOf(
                             "state" to if (resultCode == 0) "joined" else "error",
                             "code" to resultCode,
-                            "phase" to "join",
+                            "phase" to "async_join",
+                            "category" to category,
                         ),
                     )
                 }
@@ -386,13 +468,51 @@ class MainActivity : FlutterActivity() {
             }
         })
         val code = engine.joinChannel(token, channelId, userId, displayName)
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC joinChannel syncResult=$code sdkVersion=${AliRtcEngine.getSdkVersion()}",
+        )
         if (code != 0) {
             shutdownRtc {
-                result.error("RTC_JOIN_REJECTED", "RTC SDK rejected join request", code)
+                result.error(
+                    "RTC_JOIN_REJECTED",
+                    "ARTC SDK rejected credential or join parameters",
+                    mapOf(
+                        "phase" to "sync_join",
+                        "category" to "credential",
+                        "code" to code,
+                    ),
+                )
             }
             return
         }
         result.success(code)
+    }
+
+    private fun classifyAsyncJoinFailure(resultCode: Int): String = when (resultCode) {
+        0 -> "none"
+        33_620_481,
+        33_620_482,
+        33_620_483,
+        33_620_484,
+        33_620_485,
+        33_620_486,
+        16_974_081,
+        17_314_049,
+        -> "authentication"
+        16_974_339,
+        84_148_226,
+        -> "account"
+        16_908_804,
+        17_301_508,
+        16_974_338,
+        17_317_890,
+        17_105_409,
+        17_105_410,
+        17_105_411,
+        16_908_812,
+        -> "network"
+        else -> "service"
     }
 
     private fun setTranslationMode(enabled: Boolean, muteRemoteAudio: Boolean = enabled) {
@@ -577,6 +697,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private companion object {
+        const val RTC_DIAGNOSTIC_TAG = "RuscnyARTC"
         const val TRANSLATION_CAPTURE_CHUNK_BYTES = 3_200
         const val RINGBACK_VOLUME = 55
         const val RINGBACK_PULSE_MS = 1_000

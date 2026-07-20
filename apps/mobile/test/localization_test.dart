@@ -76,6 +76,10 @@ void main() {
       'Изменить оригинал и перевод',
     );
     expect(
+      AppLocalization.translateForLocale('语音服务鉴权失败，请重新拨打', locale),
+      'Не удалось авторизовать голосовой сервис. Позвоните ещё раз',
+    );
+    expect(
       AppLocalization.translateForLocale('待确认纠错', locale),
       'Исправление ожидает подтверждения',
     );
