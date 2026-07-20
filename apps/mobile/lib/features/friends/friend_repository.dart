@@ -66,6 +66,54 @@ final class FriendRepository {
         .toList(growable: false);
   }
 
+  Future<FriendCallModel> startCall(String friendId) async {
+    final payload =
+        await _api.postMap('/friend-calls', data: {'friendId': friendId});
+    return _readCall(payload);
+  }
+
+  Future<FriendCallModel?> activeCall() async {
+    final payload = await _api.getMap('/friend-calls/active');
+    final call = payload['call'];
+    return call is Map
+        ? FriendCallModel.fromJson(call.cast<String, dynamic>())
+        : null;
+  }
+
+  Future<FriendCallModel> respondToCall(String callId,
+      {required bool accept}) async {
+    final payload = await _api.postMap(
+      '/friend-calls/${Uri.encodeComponent(callId)}/respond',
+      data: {'action': accept ? 'ACCEPT' : 'DECLINE'},
+    );
+    return _readCall(payload);
+  }
+
+  Future<void> endCall(String callId) async {
+    await _api.postMap('/friend-calls/${Uri.encodeComponent(callId)}/end');
+  }
+
+  Future<RtcCredential> rtcCredential(String callId) async {
+    final payload = await _api.postMap(
+      '/friend-calls/${Uri.encodeComponent(callId)}/rtc-credential',
+    );
+    final credential = payload['credential'];
+    if (credential is! Map) throw const FormatException('RTC 响应缺少鉴权信息');
+    return RtcCredential.fromJson(credential.cast<String, dynamic>());
+  }
+
+  Future<void> heartbeatCall(String callId) async {
+    await _api.postMap(
+      '/friend-calls/${Uri.encodeComponent(callId)}/heartbeat',
+    );
+  }
+
+  FriendCallModel _readCall(Map<String, dynamic> payload) {
+    final call = payload['call'];
+    if (call is! Map) throw const FormatException('通话响应缺少状态数据');
+    return FriendCallModel.fromJson(call.cast<String, dynamic>());
+  }
+
   Future<void> inviteToMeeting({
     required String conversationId,
     required String friendId,

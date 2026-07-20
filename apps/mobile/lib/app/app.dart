@@ -9,6 +9,7 @@ import '../core/providers.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/login_page.dart';
 import '../features/conversations/home_page.dart';
+import '../features/friends/incoming_call_coordinator.dart';
 import '../features/settings/settings_controller.dart';
 import '../shared/async_view.dart';
 import 'theme.dart';
@@ -62,8 +63,12 @@ final class _AuthGate extends ConsumerWidget {
     return auth.when(
       loading: () => const Scaffold(body: LoadingView(label: '正在安全登录…')),
       error: (error, _) => LoginPage(initialError: error),
-      data: (session) =>
-          session == null ? const LoginPage() : HomePage(session: session),
+      data: (session) => session == null
+          ? const LoginPage()
+          : IncomingFriendCallCoordinator(
+              session: session,
+              child: HomePage(session: session),
+            ),
     );
   }
 }

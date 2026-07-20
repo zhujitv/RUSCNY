@@ -67,17 +67,21 @@ test('homepage promotes the launched AI summary workflow without the obsolete pr
   assert.match(source, /不通过群发抄送公开他人地址/);
 });
 
-test('homepage distinguishes friend direct chats from document-enabled meetings', async () => {
+test('homepage distinguishes friend chats and translated calls from document-enabled meetings', async () => {
   const [home, source] = await Promise.all([
     readFile(new URL('index.html', directory), 'utf8'),
     readFile(new URL('app.js', directory), 'utf8'),
   ]);
 
-  assert.match(home, /data-i18n="featureInviteTitle">好友私聊与会议邀请/);
+  assert.match(home, /data-i18n="featureInviteTitle">好友私聊、语音通话与会议邀请/);
+  assert.match(home, /id="friend-call"/);
+  assert.match(home, /data-i18n="friendCallPoint3Title"/);
   assert.match(source, /无需创建会议房间/);
-  assert.match(source, /私聊只保留消息，不生成 AI 纪要/);
-  assert.match(source, /Личный чат и приглашения/);
-  assert.match(source, /ИИ-протокол не создаётся/);
+  assert.match(source, /应用退到后台或锁屏时/);
+  assert.match(source, /好友通话不生成会议纪要/);
+  assert.match(source, /Личный чат, звонки и приглашения/);
+  assert.match(source, /Личный звонок не создаёт протокол/);
+  assert.doesNotMatch(`${home}\n${source}`, /关闭应用后仍可|强制停止后仍可/);
 });
 
 test('homepage lazily loads the matching Chinese or Russian promotional film', async () => {
@@ -235,6 +239,7 @@ test('mobile layout uses fluid widths for large visual modules', async () => {
   assert.match(mobile[1], /\.product-window\s*\{[^}]*width:100%/);
   assert.match(mobile[1], /\.language-bridge\s*\{[^}]*width:100%/);
   assert.match(mobile[1], /\.minutes-demo\s*\{[^}]*width:100%/);
+  assert.match(mobile[1], /\.friend-call-demo\s*\{[^}]*width:100%/);
   assert.match(mobile[1], /\.final-actions\s*\{[^}]*grid-template-columns:1fr/);
   assert.match(mobile[1], /\.nav-shell\s*\{[^}]*padding-block:12px/);
   assert.match(mobile[1], /\.nav-shell\s*\{[^}]*row-gap:0/);

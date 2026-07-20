@@ -203,9 +203,9 @@ final class _HomePageState extends ConsumerState<HomePage> {
               if (!guest)
                 _DashboardTile(
                   icon: Icons.group_outlined,
-                  title: '好友',
+                  title: '好友与通话',
                   subtitle: socialRealtime.unreadDirectChatIds.isEmpty
-                      ? '私聊、搜索与管理好友'
+                      ? '一对一私聊 · 实时语音翻译'
                       : '${socialRealtime.unreadDirectChatIds.length} 条新私聊消息',
                   onTap: () => Navigator.push<void>(
                     context,

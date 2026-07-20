@@ -89,7 +89,7 @@ export async function registerFriendCallRoutes(app: FastifyInstance): Promise<vo
           callerId: request.auth.subjectId,
           calleeId: friendId,
           callerDeviceId: request.auth.deviceId,
-          channelId: `fc_${randomBytes(18).toString('base64url')}`,
+          channelId: `fc-${randomBytes(18).toString('hex')}`,
         },
         include: { caller: { select: profileSelect }, callee: { select: profileSelect } },
       });

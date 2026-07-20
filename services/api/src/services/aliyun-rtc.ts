@@ -27,8 +27,8 @@ export async function createAliyunRtcCredential(
   userId: string,
   now = new Date(),
 ): Promise<AliyunRtcCredential> {
-  assertRtcIdentifier(channelId, 'channelId');
-  assertRtcIdentifier(userId, 'userId');
+  assertRtcChannelId(channelId);
+  assertRtcUserId(userId);
   const [appId, appKey, ttlValue] = await Promise.all([
     serviceConfiguration('ALIYUN_RTC_APP_ID'),
     serviceConfiguration('ALIYUN_RTC_APP_KEY'),
@@ -63,8 +63,8 @@ export async function createAliyunRtcCredential(
  */
 export function generateAliyunRtcToken(input: AppTokenInput): string {
   assertRtcIdentifier(input.appId, 'appId');
-  assertRtcIdentifier(input.channelId, 'channelId');
-  assertRtcIdentifier(input.userId, 'userId');
+  assertRtcChannelId(input.channelId);
+  assertRtcUserId(input.userId);
   const issueTimestamp = input.issueTimestamp ?? Math.floor(Date.now() / 1_000);
   const salt = input.salt ?? randomInt(1, Math.max(2, issueTimestamp));
   for (const [name, value] of Object.entries({
@@ -95,7 +95,7 @@ export function generateAliyunRtcToken(input: AppTokenInput): string {
   // The official AppTokenOptions wire format always includes the options map.
   // No channel override is required here, so an empty map is encoded.
   const options = new BinaryWriter().writeBool(true).writeInt32(0).build();
-  const body = new BinaryWriter()
+  const compactBody = new BinaryWriter()
     .writeString(input.appId)
     .writeInt32(issueTimestamp)
     .writeInt32(salt)
@@ -103,12 +103,17 @@ export function generateAliyunRtcToken(input: AppTokenInput): string {
     .writeBytes(service)
     .writeBytes(options)
     .build();
+  // Alibaba's official DingRTC 3.0 AppToken ByteBuffer starts at 256 bytes,
+  // grows by powers of two, and signs/serializes the entire allocated buffer.
+  // The zero padding is therefore part of the wire format, not optional.
+  const body = officialBuffer(compactBody);
   const signature = createHmac('sha256', signKey).update(body).digest();
-  const payload = new BinaryWriter()
+  const compactPayload = new BinaryWriter()
     .writeInt32(signature.length)
     .writeBytes(signature)
     .writeBytes(body)
     .build();
+  const payload = officialBuffer(compactPayload);
   return `${appTokenVersion}${deflateSync(payload).toString('base64')}`;
 }
 
@@ -120,9 +125,31 @@ function assertRtcIdentifier(value: string, name: string): void {
   }
 }
 
+function assertRtcChannelId(value: string): void {
+  // DingRTC 3.0 accepts only ASCII letters, digits, and hyphens here.
+  // In particular, base64url underscores are not valid channel characters.
+  if (value === '0' || !/^[A-Za-z0-9-]{1,64}$/.test(value)) {
+    throw new Error('Invalid RTC channelId');
+  }
+}
+
+function assertRtcUserId(value: string): void {
+  if (!/^[A-Za-z0-9]{1,64}$/.test(value)) {
+    throw new Error('Invalid RTC userId');
+  }
+}
+
 function int32(value: number): Buffer {
   const result = Buffer.allocUnsafe(4);
   result.writeInt32BE(value);
+  return result;
+}
+
+function officialBuffer(value: Buffer): Buffer {
+  let capacity = 256;
+  while (capacity < value.length) capacity *= 2;
+  const result = Buffer.alloc(capacity);
+  value.copy(result);
   return result;
 }
 

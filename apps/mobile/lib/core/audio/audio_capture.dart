@@ -7,6 +7,7 @@ import 'package:record/record.dart';
 import 'package:uuid/uuid.dart';
 
 import '../errors.dart';
+import 'audio_cue_service.dart';
 
 final class AudioCapture {
   AudioCapture({AudioRecorder? recorder})
@@ -28,6 +29,9 @@ final class AudioCapture {
     }
     final temp = await getTemporaryDirectory();
     final path = p.join(temp.path, 'voice-${const Uuid().v4()}.m4a');
+    // Keep the microphone closed until the ready cue has finished. This makes
+    // the audible beep the exact boundary after which speech is recorded.
+    await AudioCueService.playTalkReady();
     await _recorder.start(
       const RecordConfig(
         encoder: AudioEncoder.aacLc,

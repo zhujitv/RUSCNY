@@ -8,6 +8,7 @@ import '../../core/providers.dart';
 import '../../shared/async_view.dart';
 import '../auth/auth_controller.dart';
 import '../room/room_page.dart';
+import 'friend_call_page.dart';
 import 'social_realtime_controller.dart';
 
 final class FriendsPage extends ConsumerStatefulWidget {
@@ -28,11 +29,12 @@ final class _FriendsPageState extends ConsumerState<FriendsPage>
   bool _searching = false;
   final _respondingRequestIds = <String>{};
   String? _openingChatFriendId;
+  String? _callingFriendId;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 4, vsync: this, initialIndex: 1);
     _reload();
   }
 
@@ -66,7 +68,7 @@ final class _FriendsPageState extends ConsumerState<FriendsPage>
           controller: _tabs,
           tabs: const [
             Tab(child: AppText('私聊列表')),
-            Tab(child: AppText('好友列表')),
+            Tab(child: AppText('实时通话')),
             Tab(child: AppText('好友申请')),
             Tab(child: AppText('添加好友')),
           ],
@@ -159,39 +161,50 @@ final class _FriendsPageState extends ConsumerState<FriendsPage>
             onRefresh: () async => _reload(),
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: friends.length,
+              itemCount: friends.length + 1,
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
-                final friend = friends[index];
-                return Card(
-                  child: ListTile(
-                    leading: _PresenceAvatar(profile: friend),
-                    title: AppText(friend.displayName, translate: false),
-                    subtitle: AppText(
-                      '${friend.company ?? '—'} · '
-                      '${friend.online ? '在线'.tr(context) : '可邀请'.tr(context)}',
-                      translate: false,
+                if (index == 0) {
+                  return Card(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    child: const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.translate_outlined),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AppText(
+                                  '好友实时语音翻译',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                SizedBox(height: 4),
+                                AppText('选择好友，点击“实时翻译通话”即可拨打。'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    onTap: _openingChatFriendId == friend.id
-                        ? null
-                        : () => _openDirectChat(friend),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton.filledTonal(
-                          tooltip: '直接聊天'.tr(context),
-                          onPressed: _openingChatFriendId == friend.id
-                              ? null
-                              : () => _openDirectChat(friend),
-                          icon: _openingChatFriendId == friend.id
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.chat_bubble_outline),
+                  );
+                }
+                final friend = friends[index - 1];
+                return Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: _PresenceAvatar(profile: friend),
+                        title: AppText(friend.displayName, translate: false),
+                        subtitle: AppText(
+                          '${friend.company ?? '—'} · '
+                          '${friend.online ? '在线'.tr(context) : '可邀请'.tr(context)}',
+                          translate: false,
                         ),
-                        PopupMenuButton<String>(
+                        trailing: PopupMenuButton<String>(
                           onSelected: (value) {
                             if (value == 'delete') _removeFriend(friend);
                           },
@@ -202,8 +215,48 @@ final class _FriendsPageState extends ConsumerState<FriendsPage>
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.tonalIcon(
+                                onPressed: _callingFriendId == null
+                                    ? () => _startVoiceCall(friend)
+                                    : null,
+                                icon: _callingFriendId == friend.id
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.translate_outlined),
+                                label: const AppText('实时翻译通话'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _openingChatFriendId == friend.id
+                                    ? null
+                                    : () => _openDirectChat(friend),
+                                icon: _openingChatFriendId == friend.id
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.chat_bubble_outline),
+                                label: const AppText('直接聊天'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -435,6 +488,26 @@ final class _FriendsPageState extends ConsumerState<FriendsPage>
       _snack(readableError(error));
     } finally {
       if (mounted) setState(() => _openingChatFriendId = null);
+    }
+  }
+
+  Future<void> _startVoiceCall(UserProfile friend) async {
+    if (_callingFriendId != null) return;
+    setState(() => _callingFriendId = friend.id);
+    try {
+      final call =
+          await ref.read(friendRepositoryProvider).startCall(friend.id);
+      if (!mounted) return;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => FriendCallPage(initialCall: call),
+        ),
+      );
+    } catch (error) {
+      _snack(readableError(error));
+    } finally {
+      if (mounted) setState(() => _callingFriendId = null);
     }
   }
 

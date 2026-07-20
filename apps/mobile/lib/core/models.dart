@@ -704,6 +704,76 @@ final class UserProfile {
       );
 }
 
+final class FriendCallModel {
+  const FriendCallModel({
+    required this.id,
+    required this.direction,
+    required this.status,
+    required this.peer,
+    required this.createdAt,
+    this.acceptedAt,
+    this.endedAt,
+  });
+
+  final String id;
+  final String direction;
+  final String status;
+  final UserProfile peer;
+  final DateTime createdAt;
+  final DateTime? acceptedAt;
+  final DateTime? endedAt;
+
+  bool get isActive => status == 'ACTIVE';
+  bool get isRinging => status == 'RINGING';
+
+  factory FriendCallModel.fromJson(Map<String, dynamic> json) =>
+      FriendCallModel(
+        id: json['id']?.toString() ?? '',
+        direction: json['direction']?.toString() ?? 'INCOMING',
+        status: json['status']?.toString() ?? 'RINGING',
+        peer: UserProfile.fromJson(
+          (json['peer'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
+        createdAt: _date(json['createdAt']),
+        acceptedAt:
+            json['acceptedAt'] == null ? null : _date(json['acceptedAt']),
+        endedAt: json['endedAt'] == null ? null : _date(json['endedAt']),
+      );
+}
+
+final class RtcCredential {
+  const RtcCredential({
+    required this.channelId,
+    required this.userId,
+    required this.token,
+    required this.expiresAt,
+    required this.realtimeTranslationAvailable,
+  });
+
+  final String channelId;
+  final String userId;
+  final String token;
+  final int expiresAt;
+  final bool realtimeTranslationAvailable;
+
+  factory RtcCredential.fromJson(Map<String, dynamic> json) => RtcCredential(
+        channelId: json['channelId']?.toString() ?? '',
+        userId: json['userId']?.toString() ?? '',
+        token: json['token']?.toString() ?? '',
+        expiresAt: (json['expiresAt'] as num?)?.toInt() ?? 0,
+        realtimeTranslationAvailable:
+            json['realtimeTranslationAvailable'] == true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'channelId': channelId,
+        'userId': userId,
+        'token': token,
+        'expiresAt': expiresAt,
+        'realtimeTranslationAvailable': realtimeTranslationAvailable,
+      };
+}
+
 final class FriendRequestModel {
   const FriendRequestModel({
     required this.id,

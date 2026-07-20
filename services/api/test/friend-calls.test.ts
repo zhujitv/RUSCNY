@@ -123,7 +123,10 @@ describe('friend call state and device ownership', () => {
 
     expect(response.statusCode, response.body).toBe(200);
     expect(mocks.friendCall.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ callerDeviceId: 'device-a' }),
+      data: expect.objectContaining({
+        callerDeviceId: 'device-a',
+        channelId: expect.stringMatching(/^fc-[a-f0-9]{36}$/),
+      }),
     }));
     expect(mocks.friendCall.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ status: 'ACTIVE' }),

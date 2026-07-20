@@ -42,19 +42,40 @@ describe('Aliyun RTC server token', () => {
     const input = {
       appId: 'app123',
       appKey: 'server-only-secret',
-      channelId: 'fc_channel',
-      userId: 'user_1',
+      channelId: 'fc-channel',
+      userId: 'user1',
       issueTimestamp: 1_700_000_000,
       expiresAt: 1_700_003_600,
       salt: 123_456_789,
     };
     const token = generateAliyunRtcToken(input);
     expect(token).toBe(generateAliyunRtcToken(input));
+    expect(token).toBe(
+      '000eJxjYGBQqOvgC7ulnRORkML8W3ytHbdRuGf6FvXS7z+7/nd/va9tx8DAwJZYUGBoZJwa/JGBPfqsaGrwfwEGBgautGTd5IzEvLzUHAYGBtbS4tQiQ0YGBgZmEDEKhgIAAI8pG1E=',
+    );
     expect(token).toMatch(/^000/);
     expect(token).not.toContain(input.appKey);
     const payload = inflateSync(Buffer.from(token.slice(3), 'base64'));
     expect(payload.readInt32BE(0)).toBe(32);
-    expect(payload.length).toBeGreaterThan(64);
+    expect(payload.length).toBe(512);
+  });
+
+  it('rejects channel and user identifiers that DingRTC 3.0 cannot join', () => {
+    const input = {
+      appId: 'app123',
+      appKey: 'server-only-secret',
+      channelId: 'fc_channel',
+      userId: 'user1',
+      issueTimestamp: 1_700_000_000,
+      expiresAt: 1_700_003_600,
+      salt: 123_456_789,
+    };
+    expect(() => generateAliyunRtcToken(input)).toThrow(/channelId/);
+    expect(() => generateAliyunRtcToken({
+      ...input,
+      channelId: 'fc-channel',
+      userId: 'user_1',
+    })).toThrow(/userId/);
   });
 });
 

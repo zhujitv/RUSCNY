@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../core/config.dart';
+import '../../core/errors.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../auth/auth_controller.dart';
@@ -22,6 +23,57 @@ final socialRealtimeProvider = StateNotifierProvider.autoDispose<
   return controller;
 });
 
+final class FriendCallTranslationEvent {
+  const FriendCallTranslationEvent({
+    required this.callId,
+    required this.type,
+    this.speakerId,
+    this.text,
+    this.language,
+    this.audio,
+    this.sampleRate,
+    this.code,
+    this.message,
+    this.outputAudio,
+    this.sourceLanguage,
+    this.targetLanguage,
+  });
+
+  final String callId;
+  final String type;
+  final String? speakerId;
+  final String? text;
+  final String? language;
+  final String? audio;
+  final int? sampleRate;
+  final String? code;
+  final String? message;
+  final bool? outputAudio;
+  final String? sourceLanguage;
+  final String? targetLanguage;
+
+  factory FriendCallTranslationEvent.fromPayload(
+    String type,
+    dynamic payload,
+  ) {
+    final data = SocialRealtimeController._json(payload);
+    return FriendCallTranslationEvent(
+      callId: data['callId']?.toString() ?? '',
+      type: data['kind']?.toString() ?? type,
+      speakerId: data['speakerId']?.toString(),
+      text: data['text']?.toString(),
+      language: data['language']?.toString(),
+      audio: data['audio']?.toString(),
+      sampleRate: (data['sampleRate'] as num?)?.toInt(),
+      code: data['code']?.toString(),
+      message: data['message']?.toString(),
+      outputAudio: data['outputAudio'] as bool?,
+      sourceLanguage: data['sourceLanguage']?.toString(),
+      targetLanguage: data['targetLanguage']?.toString(),
+    );
+  }
+}
+
 final class SocialRealtimeState {
   const SocialRealtimeState({
     this.connected = false,
@@ -30,6 +82,7 @@ final class SocialRealtimeState {
     this.lastEvent,
     this.latestDirectConversationId,
     this.unreadDirectChatIds = const {},
+    this.latestCall,
   });
 
   final bool connected;
@@ -38,6 +91,7 @@ final class SocialRealtimeState {
   final String? lastEvent;
   final String? latestDirectConversationId;
   final Set<String> unreadDirectChatIds;
+  final FriendCallModel? latestCall;
 
   SocialRealtimeState copyWith({
     bool? connected,
@@ -47,6 +101,8 @@ final class SocialRealtimeState {
     String? latestDirectConversationId,
     Set<String>? unreadDirectChatIds,
     bool clearInvitation = false,
+    FriendCallModel? latestCall,
+    bool clearCall = false,
   }) =>
       SocialRealtimeState(
         connected: connected ?? this.connected,
@@ -57,6 +113,7 @@ final class SocialRealtimeState {
         latestDirectConversationId:
             latestDirectConversationId ?? this.latestDirectConversationId,
         unreadDirectChatIds: unreadDirectChatIds ?? this.unreadDirectChatIds,
+        latestCall: clearCall ? null : latestCall ?? this.latestCall,
       );
 }
 
@@ -75,8 +132,13 @@ final class SocialRealtimeController
   final Future<void> Function() _recoverAuthentication;
   final Future<void> Function() _authenticationLost;
   io.Socket? _socket;
+  final _callTranslationEvents =
+      StreamController<FriendCallTranslationEvent>.broadcast();
   bool _recovering = false;
   bool _disposed = false;
+
+  Stream<FriendCallTranslationEvent> get callTranslationEvents =>
+      _callTranslationEvents.stream;
 
   void connect() {
     if (_disposed || _socket != null) return;
@@ -151,12 +213,109 @@ final class SocialRealtimeController
       final conversationId = _json(payload)['conversationId']?.toString();
       _markDirectEvent('direct.message.created', conversationId, unread: true);
     });
+    socket.on('friend.call.incoming',
+        (payload) => _markCallEvent('friend.call.incoming', payload));
+    socket.on('friend.call.accepted',
+        (payload) => _markCallEvent('friend.call.accepted', payload));
+    socket.on(
+        'friend.call.declined', (_) => _markCallClosed('friend.call.declined'));
+    socket.on('friend.call.ended', (_) => _markCallClosed('friend.call.ended'));
+    for (final event in const [
+      'friend.call.translation.ready',
+      'friend.call.translation.text',
+      'friend.call.translation.audio',
+      'friend.call.translation.error',
+      'friend.call.translation.finished',
+    ]) {
+      socket.on(event, (payload) {
+        if (_disposed) return;
+        _callTranslationEvents.add(
+          FriendCallTranslationEvent.fromPayload(event, payload),
+        );
+      });
+    }
     socket.connect();
+  }
+
+  Future<FriendCallTranslationEvent> startCallTranslation(
+    String callId,
+  ) async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) {
+      throw const AppException('实时连接尚未就绪');
+    }
+    final response = await socket
+        .timeout(15000)
+        .emitWithAckAsync('friend.call.translation.start', {'callId': callId});
+    final payload = _json(response);
+    if (payload['ok'] != true) {
+      final error = _json(payload['error']);
+      throw AppException(
+        error['message']?.toString() ?? '实时翻译服务暂时不可用',
+      );
+    }
+    return FriendCallTranslationEvent.fromPayload(
+      'friend.call.translation.ready',
+      payload['data'],
+    );
+  }
+
+  void sendCallTranslationAudio(
+    String callId,
+    String audio,
+    int sequence,
+  ) {
+    final socket = _socket;
+    if (socket == null || !socket.connected || audio.isEmpty) return;
+    socket.volatile.emit('friend.call.translation.audio', {
+      'callId': callId,
+      'audio': audio,
+      'sequence': sequence,
+    });
+  }
+
+  void finishCallTranslation(String callId) {
+    final socket = _socket;
+    if (socket != null && socket.connected) {
+      socket.emit('friend.call.translation.finish', {'callId': callId});
+    }
   }
 
   void consumeInvitation(String invitationId) {
     if (state.latestInvitation?.id != invitationId) return;
     state = state.copyWith(clearInvitation: true);
+  }
+
+  void consumeCall(String callId) {
+    if (state.latestCall?.id != callId) return;
+    state = state.copyWith(clearCall: true);
+  }
+
+  void _markCallEvent(String event, dynamic payload) {
+    final raw = _json(payload)['call'];
+    FriendCallModel? parsed;
+    if (raw is Map) {
+      try {
+        parsed = FriendCallModel.fromJson(raw.cast<String, dynamic>());
+      } catch (_) {
+        // REST recovery below remains authoritative if a push is malformed.
+      }
+    }
+    if (_disposed) return;
+    state = state.copyWith(
+      revision: state.revision + 1,
+      lastEvent: event,
+      latestCall: parsed,
+    );
+  }
+
+  void _markCallClosed(String event) {
+    if (_disposed) return;
+    state = state.copyWith(
+      revision: state.revision + 1,
+      lastEvent: event,
+      clearCall: true,
+    );
   }
 
   void markDirectChatRead(String conversationId) {
@@ -239,6 +398,7 @@ final class SocialRealtimeController
       ?..clearListeners()
       ..disconnect()
       ..dispose();
+    unawaited(_callTranslationEvents.close());
     super.dispose();
   }
 }
