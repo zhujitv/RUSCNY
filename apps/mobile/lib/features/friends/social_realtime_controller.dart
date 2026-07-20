@@ -56,8 +56,7 @@ final class SocialRealtimeState {
         lastEvent: lastEvent ?? this.lastEvent,
         latestDirectConversationId:
             latestDirectConversationId ?? this.latestDirectConversationId,
-        unreadDirectChatIds:
-            unreadDirectChatIds ?? this.unreadDirectChatIds,
+        unreadDirectChatIds: unreadDirectChatIds ?? this.unreadDirectChatIds,
       );
 }
 
