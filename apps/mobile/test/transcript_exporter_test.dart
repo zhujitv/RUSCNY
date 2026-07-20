@@ -4,8 +4,7 @@ import 'package:tooyei_translator/core/models.dart';
 import 'package:tooyei_translator/core/utils/transcript_exporter.dart';
 
 void main() {
-  test('exports final and failed messages but excludes processing messages',
-      () {
+  test('exports only final messages', () {
     final conversation = Conversation(
       id: 'conv-a',
       ownerId: 'host',
@@ -83,13 +82,13 @@ void main() {
     expect(text, contains('原文：这个产品有库存。'));
     expect(text, contains('Этот товар есть в наличии.'));
     expect(text, contains('状态：已完成（TTS_FAILED：语音合成失败）'));
-    expect(text, contains('状态：翻译失败（PROVIDER_TIMEOUT：供应商超时）'));
-    expect(text, contains('原文：Перевод не завершён.'));
-    expect(text, contains('译文：（翻译失败，无译文）'));
+    expect(text, isNot(contains('PROVIDER_TIMEOUT')));
+    expect(text, isNot(contains('Перевод не завершён.')));
+    expect(text, isNot(contains('翻译失败')));
     expect(text, isNot(contains('temporary')));
     expect(markdown, contains('# SPC 产品报价'));
     expect(markdown, contains('`conv-a`'));
-    expect(markdown, contains(r'PROVIDER\_TIMEOUT'));
+    expect(markdown, isNot(contains(r'PROVIDER\_TIMEOUT')));
 
     final russian = TranscriptExporter.text(
       conversation,

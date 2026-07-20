@@ -266,12 +266,12 @@ describe('FINAL authorization revalidation', () => {
     expect(queryRaw).toHaveBeenCalledTimes(2);
   });
 
-  it('does not broadcast authorization failures to the meeting room', () => {
+  it('does not broadcast any translation failure to the meeting room', () => {
     expect(shouldBroadcastTranslationFailure(
       new AppError(401, 'DEVICE_REVOKED', '已撤销'),
     )).toBe(false);
     expect(shouldBroadcastTranslationFailure(
       new AppError(502, 'MT_FAILED', '翻译失败'),
-    )).toBe(true);
+    )).toBe(false);
   });
 });

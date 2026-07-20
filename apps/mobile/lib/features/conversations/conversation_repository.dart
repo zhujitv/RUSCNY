@@ -92,7 +92,11 @@ final class ConversationRepository {
     return rows
         .whereType<Map>()
         .map((row) => TranslationMessage.fromJson(row.cast<String, dynamic>()))
-        .where((message) => message.conversationId == conversationId)
+        .where(
+          (message) =>
+              message.conversationId == conversationId &&
+              message.status == MessageStatus.finalResult,
+        )
         .toList(growable: false);
   }
 

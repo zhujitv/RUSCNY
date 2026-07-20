@@ -655,13 +655,11 @@
   }
 
   function contiguousCommittedSequence() {
-    const committed = new Set();
+    let latest = 0;
     for (const message of state.messages.values()) {
-      if (message.status === 'FINAL' || message.status === 'FAILED') committed.add(Number(message.sequence));
+      if (message.status === 'FINAL') latest = Math.max(latest, Number(message.sequence) || 0);
     }
-    let sequence = 0;
-    while (committed.has(sequence + 1)) sequence += 1;
-    return sequence;
+    return latest;
   }
 
   function mergeParticipants(items) {
@@ -712,6 +710,10 @@
     if (!message || message.conversationId !== state.session?.conversationId) return;
     const id = message.messageId || message.id;
     if (!id) return;
+    if (String(message.status || '').toUpperCase() !== 'FINAL') {
+      discardMessage(id);
+      return;
+    }
     const current = state.messages.get(id);
     if (messageStatusRank(current?.status) > messageStatusRank(message.status)) return;
     const currentRevision = Number(current?.reviewRevision) || 0;
@@ -724,6 +726,16 @@
     const merged = { ...(current || {}), ...message, id, messageId: id };
     state.messages.set(id, merged);
     renderMessage(merged, bulk);
+    updateEmptyTranscript();
+    refreshActiveSpeaker();
+    refreshSyncLabel();
+  }
+
+  function discardMessage(id) {
+    state.messages.delete(id);
+    const card = state.messageElements.get(id);
+    if (card) card.remove();
+    state.messageElements.delete(id);
     updateEmptyTranscript();
     refreshActiveSpeaker();
     refreshSyncLabel();
@@ -867,7 +879,9 @@
 
   function refreshSyncLabel() {
     if (!dom.sync_label || state.syncPromise) return;
-    const latest = sortedMessages().reduce((max, message) => Math.max(max, Number(message.sequence) || 0), 0);
+    const latest = sortedMessages()
+      .filter((message) => message.status === 'FINAL')
+      .reduce((max, message) => Math.max(max, Number(message.sequence) || 0), 0);
     dom.sync_label.textContent = latest ? t('synced', { sequence: latest }) : t('waitingForSpeech');
   }
 
@@ -1415,10 +1429,8 @@
       showOnly('terminal');
       return;
     }
-    // The end transaction may have converted in-flight PROCESSING rows to
-    // FAILED without a separate translation.failed event. Pull after the
-    // terminal commit before closing realtime so the read-only transcript is
-    // the authoritative final ledger.
+    // Pull once after the terminal commit before closing realtime so every
+    // successfully translated message is present in the read-only transcript.
     try {
       await pullAllMessages(contiguousCommittedSequence());
       await refreshParticipants();

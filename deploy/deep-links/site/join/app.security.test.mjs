@@ -89,3 +89,20 @@ test('NO_ACCESS_AFTER_END purges transcript and auth session', () => {
   assert.match(ended, /purgeRoomContent\(\)/);
   assert.match(ended, /clearAuthSession\(\)/);
 });
+
+test('non-final translation events are removed from the shared transcript', () => {
+  const merge = bodyBetween(
+    'function mergeMessage(message, bulk = false)',
+    'function reviewStatusRank(value)',
+  );
+  assert.match(merge, /toUpperCase\(\) !== 'FINAL'/);
+  assert.match(merge, /discardMessage\(id\)/);
+
+  const discard = bodyBetween(
+    'function discardMessage(id)',
+    'function reviewStatusRank(value)',
+  );
+  assert.match(discard, /state\.messages\.delete\(id\)/);
+  assert.match(discard, /card\.remove\(\)/);
+  assert.match(discard, /state\.messageElements\.delete\(id\)/);
+});

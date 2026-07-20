@@ -547,7 +547,7 @@ afterSequence=34
 limit=100
 ```
 
-`afterSequence` 默认 0，`limit` 应限制在安全范围。读取前，服务端会把超过完整 provider 处理窗口仍停留在 `PROCESSING` 的消息原子改为 `FAILED / PROCESSING_TIMEOUT`；当前窗口为 `max(120 秒, 4 × ALIYUN_REQUEST_TIMEOUT_MS)`。随后返回当前主体有权读取且 sequence 更大的消息，升序。该端点是 Socket.IO 重连补拉的权威后备；历史权限在每次请求重新验证。
+`afterSequence` 默认 0，`limit` 应限制在安全范围。读取前，服务端会把超过完整 provider 处理窗口仍停留在 `PROCESSING` 的消息原子改为 `FAILED / PROCESSING_TIMEOUT`；当前窗口为 `max(120 秒, 4 × ALIYUN_REQUEST_TIMEOUT_MS)`。参会者接口只返回翻译成功的 `FINAL` 消息；`PROCESSING` 与 `FAILED` 仅在服务端保留用于重试、审计和排查，不广播也不构成共享会议正文。该端点是 Socket.IO 重连补拉的权威后备；历史权限在每次请求重新验证。
 
 ### `POST /conversations/:conversationId/audio`
 
@@ -623,7 +623,7 @@ GET /v1/conversations/:conversationId/export?format=txt
 GET /v1/conversations/:conversationId/export?format=md
 ```
 
-Host 和仍有历史权限的参与者可按产品策略导出。响应使用安全文件名、UTF-8、`Content-Disposition: attachment`，只包含该 conversationId 的终态消息（`FINAL` 与 `FAILED`），排除尚未稳定的 `PROCESSING`。失败消息保留已识别原文、失败状态和公开错误信息；没有原文或译文时输出明确占位，`FINAL / TTS_FAILED` 也保留语音合成降级状态。不能接受任意文件路径或跨会议列表。移动端本地导出遵循相同规则，并且只能使用已经通过权限接口取得的当前会议消息。
+Host 和仍有历史权限的参与者可按产品策略导出。响应使用安全文件名、UTF-8、`Content-Disposition: attachment`，只包含该 conversationId 翻译成功的 `FINAL` 消息；`PROCESSING` 与 `FAILED` 不进入会议记录。`FINAL / TTS_FAILED` 仍保留文本和语音合成降级状态。不能接受任意文件路径或跨会议列表。移动端本地导出遵循相同规则，并且只能使用已经通过权限接口取得的当前会议消息。
 
 ## 10. 术语表
 
@@ -834,7 +834,7 @@ POST  /v1/auth/password/reset
 | `ASR_FAILED` | 502 | 识别失败 |
 | `MT_FAILED` | 502 | 翻译失败 |
 | `TTS_FAILED` | `200` 的 FINAL Message 字段 | 文本成功但语音降级，`audioUrl=null`；不把整个请求改为 502 |
-| `PROCESSING_TIMEOUT` | FAILED Message 字段 | 进程中断后消息超过处理窗口；在消息读取、导出或 Socket join 补拉前收敛为失败 |
+| `PROCESSING_TIMEOUT` | 服务端 FAILED Message 字段 | 进程中断后消息超过处理窗口；在消息读取或 Socket join 前收敛为服务端失败记录，不进入参会者正文、导出或纪要 |
 | `AUDIO_URL_INVALID` | 403 | 内部播放签名无效或已过期 |
 | `AUDIO_NOT_FOUND` | 404 | 签名对应资产不存在或已清理 |
 | `PROVIDER_RATE_LIMITED` | 429 | 上游供应商限流，客户端只能用同一幂等键有界重试 |

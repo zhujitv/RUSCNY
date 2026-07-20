@@ -74,21 +74,21 @@ void main() {
       expect(result.single.id, 'final');
     });
 
-    test('resume cursor stops before a sequence gap', () {
+    test('resume cursor advances across hidden server-side sequence gaps', () {
       final ledger = MessageLedger('conv-a');
       ledger.merge([
         message(id: 'm1', conversationId: 'conv-a', sequence: 1),
         message(id: 'm3', conversationId: 'conv-a', sequence: 3),
       ]);
 
-      expect(ledger.lastSequence, 1);
+      expect(ledger.lastSequence, 3);
       expect(ledger.highestSequence, 3);
 
       ledger.merge([message(id: 'm2', conversationId: 'conv-a', sequence: 2)]);
       expect(ledger.lastSequence, 3);
     });
 
-    test('processing placeholder is not an acknowledged resume sequence', () {
+    test('processing placeholder is not displayed or acknowledged', () {
       final ledger = MessageLedger('conv-a');
       ledger.merge([
         message(
@@ -100,13 +100,14 @@ void main() {
         message(id: 'm2', conversationId: 'conv-a', sequence: 2),
       ]);
 
-      expect(ledger.lastSequence, 0);
+      expect(ledger.lastSequence, 2);
+      expect(ledger.merge(const []), hasLength(1));
 
       ledger.merge([message(id: 'm1', conversationId: 'conv-a', sequence: 1)]);
       expect(ledger.lastSequence, 2);
     });
 
-    test('stale processing becoming failed restores contiguous resume cursor',
+    test('failed translation removes its placeholder from the public ledger',
         () {
       final ledger = MessageLedger('conv-a');
       ledger.merge([
@@ -128,8 +129,8 @@ void main() {
         ),
       ]);
 
-      expect(result.where((item) => item.id == 'm1').single.status,
-          MessageStatus.failed);
+      expect(result.any((item) => item.id == 'm1'), isFalse);
+      expect(result.single.id, 'm2');
       expect(ledger.lastSequence, 2);
     });
 

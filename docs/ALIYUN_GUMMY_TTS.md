@@ -98,7 +98,7 @@ S3_FORCE_PATH_STYLE=false
 
 当前术语表不参与 ASR：服务端必须先拿到 ASR 文本，才能按命中文本选择术语并传给 Qwen-MT。当前 `qwen3-asr-flash` OpenAI 兼容 API 的 `asr_options` 不应被虚构成支持动态 hotword；在官方文档/目标账号明确提供可用字段前，专业词的 ASR 识别仍必须靠真实语料验收，不得宣称已有热词增强。
 
-未来升级流式字幕时可更换为 `qwen3-asr-flash-realtime` 适配器，但不能改变 App 侧稳定的 `translation.processing/final/failed` 合同。
+未来升级流式字幕时可更换为 `qwen3-asr-flash-realtime` 适配器，但共享会议正文仍只能广播 `translation.final`；处理中与失败状态必须保留为发言者本地交互。
 
 ## 6. Qwen-MT 中俄翻译
 

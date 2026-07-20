@@ -53,9 +53,7 @@ ru  俄语
 | `friend.request.created/responded` | Server → Subject | 好友申请新建/处理 |
 | `friend.removed` | Server → Subject | 好友关系已删除 |
 | `meeting.invitation.created/responded` | Server → Subject | App 内会议邀请新建/处理 |
-| `translation.processing` | Server → Room | 一条音频提交已进入处理 |
 | `translation.final` | Server → Room | 最终原文、译文和可用音频 |
-| `translation.failed` | Server → Room | 该消息处理失败，可按错误类型重试 |
 | `room.ended` | Server → Room | Host 已结束会议，房间转只读 |
 | `room.error` | Server → Client | 加入或房间操作失败的稳定错误 |
 
@@ -182,27 +180,9 @@ Host 通过 `DELETE /v1/conversations/:conversationId/participants/:participantI
 
 `invitation.rotated` 载荷为 `{conversationId, reason:"PARTICIPANT_REMOVED", credentialsAvailable:false}`。Host 收到后调用邀请轮换接口获取新的一次性明文，不能继续展示旧二维码。
 
-## 8. `translation.processing`
+## 8. 处理中状态
 
-HTTP 音频上传通过授权和幂等校验、创建消息后广播：
-
-```json
-{
-  "conversationId": "conv_123",
-  "messageId": "msg_456",
-  "participantId": "p_host",
-  "speakerRole": "HOST",
-  "speakerDisplayName": "王经理",
-  "speakerCompany": "图远科技",
-  "speakerLanguage": "zh",
-  "sourceLanguage": "zh",
-  "targetLanguage": "ru",
-  "status": "PROCESSING",
-  "createdAt": "2026-07-18T10:20:00.000Z"
-}
-```
-
-它不是最终历史内容，`sourceText`/`translatedText` 不应出现。客户端按 `messageId` 建立处理中占位，重复事件只更新状态。
+HTTP 音频上传通过授权和幂等校验后，服务端会创建内部 `PROCESSING` 消息，但不向房间广播。发言者自己的客户端在上传界面显示处理中；其他参会者只在翻译成功后收到 `translation.final`。
 
 ## 9. `translation.final`
 
@@ -232,28 +212,12 @@ HTTP 音频上传通过授权和幂等校验、创建消息后广播：
 - `audioUrl` 可为 `null`；TTS 失败不能让已成功的文本消失。
 - 当前 TTS 在 final 前同步尝试；失败时同一个 FINAL Message 可带 `errorCode=TTS_FAILED`、`audioUrl=null`。当前没有 `translation.audio.ready` 或独立 TTS 重试事件。
 - URL 是服务端内部默认 15 分钟签名地址，不是阿里云临时 URL；播放请求还必须携带当前 Access Token，服务端每次重新校验会议权限。签名过期后重新获取 messages 或 `room.joined` 补拉数据以生成新地址。
-- 收到相同 `messageId` 的 processing/final 顺序颠倒时，FINAL 状态不可回退。
-- sequence 出现空洞时先缓存后续消息并触发补拉，不直接重排为连续。
+- 客户端只把 FINAL 状态加入共享会议正文。
+- sequence 可能因为隐藏的失败记录出现空洞，按服务端序号排序即可，不应显示占位卡片。
 
-## 10. `translation.failed`
+## 10. 翻译失败
 
-```json
-{
-  "conversationId": "conv_123",
-  "messageId": "msg_456",
-  "participantId": "p_host",
-  "speakerRole": "HOST",
-  "speakerDisplayName": "王经理",
-  "speakerCompany": "图远科技",
-  "speakerLanguage": "zh",
-  "status": "FAILED",
-  "errorCode": "PROVIDER_TIMEOUT",
-  "retryable": true,
-  "createdAt": "2026-07-18T10:20:08.000Z"
-}
-```
-
-允许对客户端暴露的错误码：
+`FAILED` 消息只保留在服务端用于发言者重试、管理员审计和故障排查，不通过 `translation.failed` 向房间广播，也不进入参会者历史、导出或会议纪要。音频上传 HTTP 请求仍向发言者返回以下稳定错误码，由发言者客户端本地提示：
 
 | errorCode | retryable | 客户端提示 |
 | --- | --- | --- |
@@ -267,7 +231,7 @@ HTTP 音频上传通过授权和幂等校验、创建消息后广播：
 | `ROOM_NOT_ACTIVE` | false | 会议已结束或过期 |
 | `TTS_FAILED` | 不由本事件发送 | 当前作为 `translation.final` 的降级字段；独立语音重试端点尚未实现 |
 
-不得把供应商响应正文、堆栈、Secret 或内部网络信息发送给 App。
+不得把供应商响应正文、堆栈、Secret 或内部网络信息发送给 App，也不得把发言者的失败提示公开给其他参会者。
 
 ## 10.1 `translation.review.updated`
 

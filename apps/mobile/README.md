@@ -52,6 +52,6 @@ iOS source control includes `AppFrameworkInfo.plist`, AppIcon resources, `Genera
 - Local SQLite is a bounded offline cache. The server remains authoritative for membership, contact ownership, room expiry, history policy, and deletion.
 - Guest sessions are scoped to one conversation and do not expose the host's contact or history lists.
 - Host invitation rotation returns a new token/code pair and invalidates the old pair immediately; the app must replace, not append to, the displayed QR/link.
-- A stale `PROCESSING` message recovered during history fetch or Socket join is rendered as `FAILED` with `PROCESSING_TIMEOUT`, never left spinning indefinitely.
+- A stale `PROCESSING` message is recovered server-side as `FAILED / PROCESSING_TIMEOUT` for retry and audit, but participant transcripts display only `FINAL` translations. The speaker receives the upload failure locally and can retry the retained recording.
 
 Structured, speaker-attributed meeting minutes are implemented from server-owned FINAL message snapshots. Generative summary quality workflows and push notifications remain later production capabilities and are not required for the real-time translation path.

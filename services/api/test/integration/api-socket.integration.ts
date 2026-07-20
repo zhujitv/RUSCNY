@@ -768,15 +768,12 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
       });
     });
     expect(joined.ok).toBe(true);
-    expect(joined.data.latestSequence).toBe(2);
+    expect(joined.data.latestSequence).toBe(0);
     expect(joined.data.missingMessages.map((message: any) => [
       message.sequence,
       message.status,
       message.errorCode,
-    ])).toEqual([
-      [1, 'FAILED', 'PROCESSING_TIMEOUT'],
-      [2, 'PROCESSING', null],
-    ]);
+    ])).toEqual([]);
     expect((await prisma.translationMessage.findUniqueOrThrow({
       where: { id: stale.id },
     })).status).toBe('FAILED');
@@ -799,10 +796,7 @@ describe.sequential('PostgreSQL API isolation and concurrency', () => {
       message.sequence,
       message.status,
       message.errorCode,
-    ])).toEqual([
-      [1, 'FAILED', 'PROCESSING_TIMEOUT'],
-      [2, 'FAILED', 'PROCESSING_TIMEOUT'],
-    ]);
+    ])).toEqual([]);
   });
 });
 

@@ -20,6 +20,7 @@ import {
   getParticipant,
   assertDirectConversationLiveAccess,
   messageDto,
+  participantTranscriptMessageWhere,
   participantDto,
 } from './services/conversations.js';
 import { recoverStaleProcessingMessages } from './services/message-processing.js';
@@ -279,7 +280,10 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
           conversationId,
           participantId: participant.id,
           status: joined.conversation.status,
-          latestSequence: joined.conversation.maxSequence,
+          latestSequence: joined.missingMessages.reduce(
+            (latest, message) => Math.max(latest, message.sequence),
+            lastSequence,
+          ),
           missingMessages: joined.missingMessages.map(messageDto),
           participants: joined.participants.map(participantDto),
           hasMore: joined.missingMessages.length === 500,
@@ -697,7 +701,11 @@ async function lockAndLoadRealtimeJoin(
   }
 
   const missingMessages = await tx.translationMessage.findMany({
-    where: { conversationId, sequence: { gt: lastSequence } },
+    where: {
+      ...participantTranscriptMessageWhere,
+      conversationId,
+      sequence: { gt: lastSequence },
+    },
     orderBy: { sequence: 'asc' },
     take: 500,
   });

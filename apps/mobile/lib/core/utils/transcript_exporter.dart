@@ -166,11 +166,7 @@ final class TranscriptExporter {
     required bool groupBySpeaker,
   }) {
     final terminalMessages = messages
-        .where(
-          (message) =>
-              message.status == MessageStatus.finalResult ||
-              message.status == MessageStatus.failed,
-        )
+        .where((message) => message.status == MessageStatus.finalResult)
         .toList(growable: false);
     if (!groupBySpeaker) return terminalMessages;
     final bySpeaker = <String, List<TranslationMessage>>{};

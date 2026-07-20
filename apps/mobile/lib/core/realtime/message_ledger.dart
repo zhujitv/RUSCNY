@@ -13,6 +13,17 @@ final class MessageLedger {
       if (message.conversationId != conversationId || message.id.isEmpty) {
         continue;
       }
+      if (message.status != MessageStatus.finalResult) {
+        _byId.remove(message.id);
+        if (message.sequence > 0) {
+          _byId.removeWhere(
+            (_, existing) =>
+                existing.sequence == message.sequence &&
+                existing.status != MessageStatus.finalResult,
+          );
+        }
+        continue;
+      }
       final existing = _byId[message.id];
       if (existing == null || _isAtLeastAsComplete(message, existing)) {
         _byId[message.id] = message;
@@ -45,21 +56,16 @@ final class MessageLedger {
     return List.unmodifiable(ordered);
   }
 
-  /// Highest sequence that can safely be sent as Socket.IO `lastSequence`.
-  /// A later message must never make the client skip an earlier gap, and a
-  /// PROCESSING placeholder is not considered durably complete yet.
-  int get lastSequence {
-    final completed = <int>{
-      for (final message in _byId.values)
-        if (message.sequence > 0 && message.status != MessageStatus.processing)
-          message.sequence,
-    };
-    var contiguous = 0;
-    while (completed.contains(contiguous + 1)) {
-      contiguous += 1;
-    }
-    return contiguous;
-  }
+  /// Highest participant-visible FINAL sequence for Socket.IO resume.
+  /// Hidden server-side failures intentionally leave gaps in public sequence
+  /// numbers, so a contiguous-only cursor would never advance past them.
+  int get lastSequence => _byId.values.fold(
+        0,
+        (highest, message) => message.status == MessageStatus.finalResult &&
+                message.sequence > highest
+            ? message.sequence
+            : highest,
+      );
 
   int get highestSequence => _byId.values.fold(
         0,

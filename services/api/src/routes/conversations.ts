@@ -20,6 +20,7 @@ import {
   getConversationForAuth,
   getConversationForAuthInTransaction,
   messageDto,
+  participantTranscriptMessageWhere,
   participantDto,
 } from '../services/conversations.js';
 import {
@@ -885,7 +886,11 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
           history: true,
         });
         return tx.translationMessage.findMany({
-          where: { conversationId: id, sequence: { gt: query.afterSequence } },
+          where: {
+            ...participantTranscriptMessageWhere,
+            conversationId: id,
+            sequence: { gt: query.afterSequence },
+          },
           orderBy: { sequence: 'asc' },
           take: query.limit,
         });
@@ -917,7 +922,7 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
         );
         assertMeetingDocumentsAvailable(authorized);
         const scopedMessages = await tx.translationMessage.findMany({
-          where: { conversationId: id, status: { in: ['FINAL', 'FAILED'] } },
+          where: { ...participantTranscriptMessageWhere, conversationId: id },
           orderBy: { sequence: 'asc' },
         });
         return { conversation: authorized, messages: scopedMessages };

@@ -124,12 +124,6 @@ async function processMessage(input: ProcessInput) {
   if (!attempt.acquired) return attempt.message;
   let processing = attempt.message;
 
-  realtimeHub().emitToConversation(input.conversationId, 'translation.processing', {
-    ...messageDto(processing),
-    sourceText: undefined,
-    translatedText: undefined,
-  });
-
   let recognizedSourceText = input.sourceText;
   try {
     const transcription = input.sourceText
@@ -819,20 +813,10 @@ function assertParticipantActive(
   }
 }
 
-const NON_BROADCAST_FAILURE_CODES = new Set([
-  'ACCOUNT_DISABLED',
-  'DEVICE_REVOKED',
-  'GUEST_TOKEN_REVOKED',
-  'NOT_A_PARTICIPANT',
-  'PARTICIPANT_REMOVED',
-  'PARTICIPANT_INACTIVE',
-  'FRIEND_REQUIRED',
-  'DIRECT_CHAT_INVALID',
-  'ROOM_NOT_ACTIVE',
-]);
-
-export function shouldBroadcastTranslationFailure(error: AppError): boolean {
-  return !NON_BROADCAST_FAILURE_CODES.has(error.code);
+export function shouldBroadcastTranslationFailure(_error: AppError): boolean {
+  // Provider/auth failures belong to the speaker's request flow, not to the
+  // shared room transcript. Keep FAILED rows private for retry and audit.
+  return false;
 }
 
 async function glossaryTerms(

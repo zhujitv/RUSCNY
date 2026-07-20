@@ -45,6 +45,7 @@ vi.mock('../src/auth.js', () => ({
   },
 }));
 vi.mock('../src/services/conversations.js', () => ({
+  participantTranscriptMessageWhere: { status: 'FINAL' },
   conversationInclude: {},
   conversationDto: (value: unknown) => value,
   effectiveSourceText: (value: {
@@ -155,6 +156,26 @@ beforeEach(async () => {
 afterEach(async () => {
   await app?.close();
   app = undefined;
+});
+
+describe('participant transcript visibility', () => {
+  it('queries only final messages for participant history', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/v1/conversations/conversation-a/messages?afterSequence=3&limit=25',
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(mocks.prisma.translationMessage.findMany).toHaveBeenCalledWith({
+      where: {
+        status: 'FINAL',
+        conversationId: 'conversation-a',
+        sequence: { gt: 3 },
+      },
+      orderBy: { sequence: 'asc' },
+      take: 25,
+    });
+  });
 });
 
 describe('server-attributed meeting summary', () => {
@@ -448,7 +469,7 @@ describe('server-attributed meeting summary', () => {
 });
 
 describe('identity-preserving transcript export', () => {
-  it('includes failed messages and groups speakers by stable participantId', async () => {
+  it('exports only final messages and groups speakers by stable participantId', async () => {
     const authorized = {
       id: 'conversation-a',
       ownerId: 'host-a',
@@ -470,18 +491,6 @@ describe('identity-preserving transcript export', () => {
         errorCode: 'TTS_FAILED',
         errorMessage: '语音合成失败',
       },
-      {
-        ...message,
-        id: 'message-a',
-        participantId: 'participant-a',
-        sequence: 2,
-        speakerDisplayName: 'Same Name',
-        sourceText: '已识别但翻译失败',
-        translatedText: '',
-        status: 'FAILED',
-        errorCode: 'PROVIDER_TIMEOUT',
-        errorMessage: '供应商超时',
-      },
     ]);
 
     const response = await app!.inject({
@@ -490,17 +499,12 @@ describe('identity-preserving transcript export', () => {
     });
 
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.body).toContain('状态：翻译失败（PROVIDER_TIMEOUT：供应商超时）');
     expect(response.body).toContain('状态：已完成（TTS_FAILED：语音合成失败）');
-    expect(response.body).toContain('原文：已识别但翻译失败');
-    expect(response.body).toContain('译文：（翻译失败，无译文）');
-    expect(response.body.indexOf('已识别但翻译失败')).toBeLessThan(
-      response.body.indexOf('第一条'),
-    );
+    expect(response.body).not.toContain('翻译失败');
     expect(mocks.prisma.translationMessage.findMany).toHaveBeenCalledWith({
       where: {
+        status: 'FINAL',
         conversationId: 'conversation-a',
-        status: { in: ['FINAL', 'FAILED'] },
       },
       orderBy: { sequence: 'asc' },
     });

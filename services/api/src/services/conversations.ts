@@ -11,6 +11,14 @@ import type { AuthContext } from '../lib/tokens.js';
 import { conversationScopeMatches, guestHistoryAllowed } from '../policies.js';
 import { playableAudioUrl } from './audio-assets.js';
 
+/**
+ * Participant-facing transcripts contain only successfully translated text.
+ * Failed/processing rows stay server-side for retry, audit and diagnostics.
+ */
+export const participantTranscriptMessageWhere = {
+  status: 'FINAL',
+} satisfies Prisma.TranslationMessageWhereInput;
+
 export const conversationInclude = {
   contact: { select: { id: true, displayName: true, company: true } },
   participants: {
@@ -32,7 +40,7 @@ export const conversationInclude = {
   },
   _count: {
     select: {
-      messages: true,
+      messages: { where: participantTranscriptMessageWhere },
       participants: { where: { removedAt: null } },
     },
   },

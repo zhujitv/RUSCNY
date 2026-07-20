@@ -64,6 +64,7 @@ vi.mock('../src/auth.js', () => ({ validateAuthContext: mocks.validateAuthContex
 vi.mock('../src/lib/tokens.js', () => ({ verifyAccessToken: vi.fn() }));
 vi.mock('../src/realtime-hub.js', () => ({ setRealtimeHub: mocks.setRealtimeHub }));
 vi.mock('../src/services/conversations.js', () => ({
+  participantTranscriptMessageWhere: { status: 'FINAL' },
   getConversationForAuth: mocks.getConversationForAuth,
   assertDirectConversationLiveAccess: mocks.assertDirectConversationLiveAccess,
   getParticipant: mocks.getParticipant,
@@ -259,18 +260,10 @@ describe('room.join post-join authoritative revalidation', () => {
     connected.onceHandlers.get('disconnect')?.();
   });
 
-  it('recovers crashed attempts before reading the backfill snapshot', async () => {
+  it('recovers crashed attempts but hides failed rows from the backfill snapshot', async () => {
     mocks.getConversationForAuth.mockResolvedValue(conversation({ maxSequence: 1 }));
     mocks.prisma.$queryRaw.mockResolvedValueOnce([conversation({ maxSequence: 1 })]);
-    mocks.prisma.translationMessage.findMany.mockResolvedValue([
-      {
-        id: 'message-a',
-        conversationId,
-        sequence: 1,
-        status: 'FAILED',
-        errorCode: 'PROCESSING_TIMEOUT',
-      },
-    ]);
+    mocks.prisma.translationMessage.findMany.mockResolvedValue([]);
 
     const result = await joinRoom();
 
@@ -278,15 +271,16 @@ describe('room.join post-join authoritative revalidation', () => {
     expect(mocks.recoverStaleProcessingMessages.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.prisma.translationMessage.findMany.mock.invocationCallOrder[0]!,
     );
+    expect(mocks.prisma.translationMessage.findMany).toHaveBeenCalledWith({
+      where: { status: 'FINAL', conversationId, sequence: { gt: 0 } },
+      orderBy: { sequence: 'asc' },
+      take: 500,
+    });
     expect(result.acknowledge).toHaveBeenCalledWith({
       ok: true,
       data: expect.objectContaining({
-        latestSequence: 1,
-        missingMessages: [expect.objectContaining({
-          sequence: 1,
-          status: 'FAILED',
-          errorCode: 'PROCESSING_TIMEOUT',
-        })],
+        latestSequence: 0,
+        missingMessages: [],
       }),
     });
     result.onceHandlers.get('disconnect')?.();
