@@ -105,7 +105,7 @@ describe('public Fastify surface without realtime or database queries', () => {
 
   it('serves customer site assets and bilingual legal pages', async () => {
     app = await buildApp({ logger: false, realtime: false });
-    const [script, accountScript, styles, account, register, login, privacy, terms, socialCard, robots, sitemap] = await Promise.all([
+    const [script, accountScript, styles, account, register, login, privacy, terms, socialCard, callScreenZh, callScreenRu, robots, sitemap] = await Promise.all([
       app.inject({ method: 'GET', url: '/site.js' }),
       app.inject({ method: 'GET', url: '/account.js' }),
       app.inject({ method: 'GET', url: '/site.css' }),
@@ -115,6 +115,8 @@ describe('public Fastify surface without realtime or database queries', () => {
       app.inject({ method: 'GET', url: '/privacy' }),
       app.inject({ method: 'GET', url: '/terms' }),
       app.inject({ method: 'GET', url: '/og.png' }),
+      app.inject({ method: 'GET', url: '/friend-call-live-ui.png' }),
+      app.inject({ method: 'GET', url: '/friend-call-live-ui-ru.png' }),
       app.inject({ method: 'GET', url: '/robots.txt' }),
       app.inject({ method: 'GET', url: '/sitemap.xml' }),
     ]);
@@ -139,6 +141,11 @@ describe('public Fastify surface without realtime or database queries', () => {
     expect(terms.body).toContain('用户协议');
     expect(socialCard.headers['content-type']).toContain('image/png');
     expect(socialCard.rawPayload.length).toBeGreaterThan(10_000);
+    for (const callScreen of [callScreenZh, callScreenRu]) {
+      expect(callScreen.statusCode).toBe(200);
+      expect(callScreen.headers['content-type']).toContain('image/png');
+      expect(callScreen.rawPayload.length).toBeGreaterThan(40_000);
+    }
     expect(robots.body).toContain('Disallow: /admin');
     expect(robots.body).toContain('Disallow: /account');
     expect(sitemap.body).toContain('https://www.ruscny.net/privacy');

@@ -13,6 +13,8 @@ interface CustomerSiteAssets {
   styles: string;
   logoMark: string;
   logoLockup: string;
+  friendCallScreenZh: Buffer;
+  friendCallScreenRu: Buffer;
   og: Buffer;
 }
 
@@ -57,6 +59,8 @@ export async function registerCustomerWebRoutes(app: FastifyInstance): Promise<v
     styles: await readFile(new URL('styles.css', siteDirectory), 'utf8'),
     logoMark: await readFile(new URL('assets/logo-mark.svg', siteDirectory), 'utf8'),
     logoLockup: await readFile(new URL('assets/logo-lockup.svg', siteDirectory), 'utf8'),
+    friendCallScreenZh: await readFile(new URL('assets/friend-call-live-ui.png', siteDirectory)),
+    friendCallScreenRu: await readFile(new URL('assets/friend-call-live-ui-ru.png', siteDirectory)),
     og: await readFile(new URL('og.png', siteDirectory)),
   };
 
@@ -76,6 +80,10 @@ export async function registerCustomerWebRoutes(app: FastifyInstance): Promise<v
     assetHeaders(reply, 'image/svg+xml; charset=utf-8').send(assets.logoMark));
   app.get('/logo-lockup.svg', async (_request, reply) =>
     assetHeaders(reply, 'image/svg+xml; charset=utf-8').send(assets.logoLockup));
+  app.get('/friend-call-live-ui.png', async (_request, reply) =>
+    assetHeaders(reply, 'image/png').send(assets.friendCallScreenZh));
+  app.get('/friend-call-live-ui-ru.png', async (_request, reply) =>
+    assetHeaders(reply, 'image/png').send(assets.friendCallScreenRu));
   app.get('/og.png', async (_request, reply) => reply
     .header('Cache-Control', 'public, max-age=86400, immutable')
     .header('X-Content-Type-Options', 'nosniff')
