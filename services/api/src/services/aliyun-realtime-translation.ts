@@ -391,7 +391,15 @@ export function buildAliyunRealtimeUrl(
   if (url.hostname === 'cn-beijing.maas.aliyuncs.com') {
     url.hostname = `${workspaceId}.cn-beijing.maas.aliyuncs.com`;
   }
-  if (!url.hostname.endsWith('.maas.aliyuncs.com')) {
+  if (url.hostname === 'ap-southeast-1.maas.aliyuncs.com') {
+    url.hostname = `${workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
+  }
+  const isWorkspaceEndpoint = url.hostname.endsWith('.maas.aliyuncs.com');
+  const isCompatibleEndpoint = [
+    'dashscope.aliyuncs.com',
+    'dashscope-intl.aliyuncs.com',
+  ].includes(url.hostname);
+  if (!isWorkspaceEndpoint && !isCompatibleEndpoint) {
     throw new AliyunRealtimeTranslationProtocolError('Aliyun realtime endpoint is not allowed');
   }
   url.searchParams.set('model', model);
