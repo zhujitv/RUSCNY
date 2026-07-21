@@ -1,10 +1,170 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tooyei_translator/core/errors.dart';
 import 'package:tooyei_translator/core/localization/app_localization.dart';
 import 'package:tooyei_translator/features/friends/friend_call_page.dart';
 
 void main() {
+  test('translation recovery uses bounded exponential backoff', () {
+    expect(friendCallTranslationRecoveryDelay(0), const Duration(seconds: 1));
+    expect(friendCallTranslationRecoveryDelay(1), const Duration(seconds: 1));
+    expect(friendCallTranslationRecoveryDelay(2), const Duration(seconds: 2));
+    expect(friendCallTranslationRecoveryDelay(3), const Duration(seconds: 4));
+    expect(friendCallTranslationRecoveryDelay(4), const Duration(seconds: 8));
+    expect(friendCallTranslationRecoveryDelay(5), const Duration(seconds: 15));
+    expect(friendCallTranslationRecoveryDelay(6), const Duration(seconds: 30));
+    expect(friendCallTranslationRecoveryDelay(7), const Duration(seconds: 60));
+    expect(friendCallTranslationRecoveryDelay(20), const Duration(seconds: 60));
+  });
+
+  test('translation only retries while the live peer call can receive it', () {
+    bool canRecover({
+      bool ending = false,
+      bool callActive = true,
+      bool rtcJoined = true,
+      bool peerPresent = true,
+    }) =>
+        canRecoverFriendCallTranslation(
+          ending: ending,
+          callActive: callActive,
+          rtcJoined: rtcJoined,
+          peerPresent: peerPresent,
+        );
+
+    expect(canRecover(), isTrue);
+    expect(canRecover(ending: true), isFalse);
+    expect(canRecover(callActive: false), isFalse);
+    expect(canRecover(rtcJoined: false), isFalse);
+    expect(canRecover(peerPresent: false), isFalse);
+  });
+
+  test('translation retries transient failures but not permanent call errors',
+      () {
+    expect(
+      isRetryableFriendCallTranslationError(
+        const AppException(
+          'temporary',
+          code: 'REALTIME_TRANSLATION_FAILED',
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      isRetryableFriendCallTranslationError(
+        const AppException(
+          'not configured',
+          code: 'REALTIME_TRANSLATION_NOT_CONFIGURED',
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      isRetryableFriendCallTranslationError(
+        const AppException(
+          'ended',
+          code: 'ACTIVE_FRIEND_CALL_NOT_FOUND',
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      isRetryableFriendCallTranslationError(
+        PlatformException(code: 'UNEXPECTED_PLATFORM_FAILURE'),
+      ),
+      isFalse,
+    );
+  });
+
+  test('translated playback diagnostics preserve platform error codes', () {
+    expect(
+      friendCallTranslationPlaybackErrorCode(
+        PlatformException(code: 'INVALID_TRANSLATION_AUDIO'),
+      ),
+      'INVALID_TRANSLATION_AUDIO',
+    );
+    expect(
+      friendCallTranslationPlaybackErrorCode(
+        const AppException('failed',
+            code: 'RTC_TRANSLATION_AUDIO_PLAYBACK_FAILED'),
+      ),
+      'RTC_TRANSLATION_AUDIO_PLAYBACK_FAILED',
+    );
+  });
+
+  test('translated audio playback queue preserves order across async setup',
+      () async {
+    final queue = FriendCallTranslationAudioQueue();
+    final order = <String>[];
+    final firstReady = Completer<void>();
+
+    final first = queue.enqueue((generation) async {
+      order.add('first:mode');
+      await firstReady.future;
+      if (queue.isCurrent(generation)) order.add('first:play');
+    });
+    final second = queue.enqueue((generation) async {
+      if (queue.isCurrent(generation)) order.add('second:play');
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(order, ['first:mode']);
+
+    firstReady.complete();
+    await Future.wait([first, second]);
+    expect(order, ['first:mode', 'first:play', 'second:play']);
+  });
+
+  test('translated audio playback queue discards a stale generation', () async {
+    final queue = FriendCallTranslationAudioQueue();
+    final played = <String>[];
+    final firstReady = Completer<void>();
+
+    final first = queue.enqueue((generation) async {
+      await firstReady.future;
+      if (queue.isCurrent(generation)) played.add('stale');
+    });
+    final staleQueued = queue.enqueue((generation) async {
+      if (queue.isCurrent(generation)) played.add('queued-stale');
+    });
+    await Future<void>.delayed(Duration.zero);
+    queue.invalidate();
+    firstReady.complete();
+    await Future.wait([first, staleQueued]);
+
+    await queue.enqueue((generation) async {
+      if (queue.isCurrent(generation)) played.add('current');
+    });
+    expect(played, ['current']);
+  });
+
+  test('translation-ready status distinguishes audio, fallback, and preference',
+      () {
+    expect(
+      friendCallTranslationReadyStatus(
+        prefersTranslatedAudio: true,
+        outputAudio: true,
+      ),
+      '中俄实时翻译已开启',
+    );
+    expect(
+      friendCallTranslationReadyStatus(
+        prefersTranslatedAudio: true,
+        outputAudio: false,
+      ),
+      '实时字幕已开启，译音频暂时不可用',
+    );
+    expect(
+      friendCallTranslationReadyStatus(
+        prefersTranslatedAudio: false,
+        outputAudio: false,
+      ),
+      '实时字幕已开启，译音频按个人偏好关闭',
+    );
+  });
+
   test('remote call cleanup always attempts server end and absorbs failure',
       () async {
     var attempts = 0;

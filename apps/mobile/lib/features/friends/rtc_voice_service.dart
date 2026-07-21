@@ -32,6 +32,7 @@ final class RtcVoiceState {
   bool get isPeerJoined => value == 'peer_joined';
   bool get isPeerLeft => value == 'peer_left';
   bool get isCameraDisabled => value == 'camera_disabled';
+  bool get isVideoDegraded => value == 'video_degraded';
   bool get isError => value == 'error';
 
   String get userMessage {

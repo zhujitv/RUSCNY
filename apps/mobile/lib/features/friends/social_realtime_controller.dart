@@ -12,13 +12,18 @@ import '../auth/auth_controller.dart';
 
 final socialRealtimeProvider = StateNotifierProvider.autoDispose<
     SocialRealtimeController, SocialRealtimeState>((ref) {
-  final session = ref.watch(authControllerProvider).valueOrNull;
+  final identity = ref.watch(
+    authControllerProvider.select((auth) {
+      final session = auth.valueOrNull;
+      return (userId: session?.userId, role: session?.role);
+    }),
+  );
   final controller = SocialRealtimeController(
     accessToken: ref.watch(secureTokenStoreProvider).readAccessToken,
     recoverAuthentication: ref.watch(apiClientProvider).ensureAuthenticated,
     authenticationLost: ref.read(authControllerProvider.notifier).logout,
   );
-  if (session != null && session.role != UserRole.guest) {
+  if (identity.userId != null && identity.role != UserRole.guest) {
     controller.connect();
   }
   return controller;
@@ -154,6 +159,23 @@ bool friendCallEventMatches({
     eventCallId.isNotEmpty &&
     eventCallId == currentCallId;
 
+String? socialRealtimeConnectionErrorCode(dynamic payload) {
+  final json = SocialRealtimeController._json(payload);
+  final nested = json['data'];
+  final data = nested is Map ? nested.cast<String, dynamic>() : json;
+  final code = (data['code'] ?? json['code'])?.toString().trim();
+  return code == null || code.isEmpty ? null : code;
+}
+
+bool isSocialRealtimeAuthenticationErrorCode(String? code) => switch (code) {
+      'UNAUTHORIZED' ||
+      'TOKEN_INVALID' ||
+      'TOKEN_EXPIRED' ||
+      'SESSION_REVOKED' =>
+        true,
+      _ => false,
+    };
+
 final class SocialRealtimeController
     extends StateNotifier<SocialRealtimeState> {
   SocialRealtimeController({
@@ -171,6 +193,7 @@ final class SocialRealtimeController
   io.Socket? _socket;
   final _callTranslationEvents =
       StreamController<FriendCallTranslationEvent>.broadcast();
+  final Set<Completer<void>> _connectionWaiters = {};
   bool _recovering = false;
   bool _disposed = false;
 
@@ -203,6 +226,7 @@ final class SocialRealtimeController
     socket.onConnect((_) {
       if (_socket == socket && !_disposed) {
         state = state.copyWith(connected: true);
+        _completeConnectionWaiters();
       }
     });
     socket.onDisconnect((reason) {
@@ -215,10 +239,17 @@ final class SocialRealtimeController
     socket.onConnectError((error) {
       if (_socket != socket || _disposed) return;
       state = state.copyWith(connected: false);
-      final code = _json(error)['code']?.toString();
-      if (_authenticationCode(code)) {
+      final code = socialRealtimeConnectionErrorCode(error);
+      if (isSocialRealtimeAuthenticationErrorCode(code)) {
         unawaited(_recoverAndReconnect(socket));
       }
+    });
+    socket.onReconnectFailed((_) {
+      if (_socket != socket || _disposed) return;
+      state = state.copyWith(connected: false);
+      // A user action may already be waiting for the connection. Restart the
+      // exhausted Socket.IO reconnect cycle only in that case.
+      if (_connectionWaiters.isNotEmpty) socket.connect();
     });
     for (final event in const [
       'friend.request.created',
@@ -283,9 +314,13 @@ final class SocialRealtimeController
   Future<FriendCallTranslationEvent> startCallTranslation(
     String callId,
   ) async {
+    await ensureConnected();
     final socket = _socket;
     if (socket == null || !socket.connected) {
-      throw const AppException('实时连接尚未就绪');
+      throw const AppException(
+        '实时连接恢复失败，请检查网络后重试',
+        code: 'REALTIME_NOT_CONNECTED',
+      );
     }
     final response = await socket
         .timeout(15000)
@@ -295,12 +330,63 @@ final class SocialRealtimeController
       final error = _json(payload['error']);
       throw AppException(
         error['message']?.toString() ?? '实时翻译服务暂时不可用',
+        code: error['code']?.toString(),
       );
     }
     return FriendCallTranslationEvent.fromPayload(
       'friend.call.translation.ready',
       payload['data'],
     );
+  }
+
+  Future<void> ensureConnected({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (_disposed) {
+      throw const AppException(
+        '实时连接已关闭，请重新进入通话',
+        code: 'REALTIME_DISPOSED',
+      );
+    }
+    if (_socket == null) connect();
+    final socket = _socket;
+    if (socket == null) {
+      throw const AppException(
+        '实时连接恢复失败，请重新登录后重试',
+        code: 'REALTIME_NOT_AVAILABLE',
+      );
+    }
+    if (socket.connected) return;
+
+    final waiter = Completer<void>();
+    _connectionWaiters.add(waiter);
+    try {
+      if (socket.connected) {
+        waiter.complete();
+      } else {
+        // connect() re-subscribes a Socket that was destroyed by a namespace
+        // CONNECT_ERROR and also restarts an exhausted reconnect cycle.
+        socket.connect();
+      }
+      await waiter.future.timeout(
+        timeout,
+        onTimeout: () => throw const AppException(
+          '实时连接恢复超时，请检查网络后重试',
+          code: 'REALTIME_CONNECT_TIMEOUT',
+        ),
+      );
+    } finally {
+      _connectionWaiters.remove(waiter);
+    }
+  }
+
+  void reconnectNow() {
+    if (_disposed) return;
+    if (_socket == null) {
+      connect();
+      return;
+    }
+    if (_socket?.connected != true) _socket?.connect();
   }
 
   void sendCallTranslationAudio(
@@ -317,10 +403,16 @@ final class SocialRealtimeController
     });
   }
 
-  void finishCallTranslation(String callId) {
+  void finishCallTranslation(
+    String callId, {
+    String reasonCode = 'client_finish',
+  }) {
     final socket = _socket;
     if (socket != null && socket.connected) {
-      socket.emit('friend.call.translation.finish', {'callId': callId});
+      socket.emit('friend.call.translation.finish', {
+        'callId': callId,
+        'reasonCode': reasonCode,
+      });
     }
   }
 
@@ -417,14 +509,21 @@ final class SocialRealtimeController
     }
   }
 
-  static bool _authenticationCode(String? code) => switch (code) {
-        'UNAUTHORIZED' ||
-        'TOKEN_INVALID' ||
-        'TOKEN_EXPIRED' ||
-        'SESSION_REVOKED' =>
-          true,
-        _ => false,
-      };
+  void _completeConnectionWaiters() {
+    final waiters = _connectionWaiters.toList(growable: false);
+    _connectionWaiters.clear();
+    for (final waiter in waiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+  }
+
+  void _failConnectionWaiters(AppException error) {
+    final waiters = _connectionWaiters.toList(growable: false);
+    _connectionWaiters.clear();
+    for (final waiter in waiters) {
+      if (!waiter.isCompleted) waiter.completeError(error);
+    }
+  }
 
   static Map<String, dynamic> _json(dynamic payload) {
     if (payload is Map) return payload.cast<String, dynamic>();
@@ -443,6 +542,12 @@ final class SocialRealtimeController
   @override
   void dispose() {
     _disposed = true;
+    _failConnectionWaiters(
+      const AppException(
+        '实时连接已关闭，请重新进入通话',
+        code: 'REALTIME_DISPOSED',
+      ),
+    );
     final socket = _socket;
     _socket = null;
     socket?.dispose();
