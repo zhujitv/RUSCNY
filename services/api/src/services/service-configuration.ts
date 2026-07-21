@@ -267,7 +267,11 @@ function assertAllowedServiceEndpoint(key: ServiceConfigurationKey, value: strin
   const builtInSuffixes: Partial<Record<ServiceConfigurationKey, string[]>> = {
     ALIYUN_COMPATIBLE_BASE_URL: ['dashscope.aliyuncs.com'],
     ALIYUN_DASHSCOPE_BASE_URL: ['dashscope.aliyuncs.com'],
-    ALIYUN_REALTIME_WEBSOCKET_URL: ['maas.aliyuncs.com'],
+    ALIYUN_REALTIME_WEBSOCKET_URL: [
+      'maas.aliyuncs.com',
+      'dashscope.aliyuncs.com',
+      'dashscope-intl.aliyuncs.com',
+    ],
     RESEND_API_BASE_URL: ['api.resend.com'],
     S3_ENDPOINT: [
       'aliyuncs.com',
