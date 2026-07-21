@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import WebSocket, { type RawData } from 'ws';
+import { isValidBase64Audio } from './call-translation-audio.js';
 import { serviceConfiguration } from './service-configuration.js';
 
 export type RealtimeTranslationLanguage = 'zh' | 'ru';
@@ -350,9 +351,17 @@ export class AliyunRealtimeTranslationSession {
     }
     if (type === 'response.audio.delta' && this.options.outputAudio) {
       const audio = stringValue(event.delta);
-      if (audio && audio.length <= 1_500_000 && /^[A-Za-z0-9+/]*={0,2}$/.test(audio)) {
-        this.options.onEvent({ type: 'translation.audio', audio, sampleRate: 24_000 });
+      if (audio.length > 1_500_000 || !isValidBase64Audio(audio)) {
+        this.options.onEvent({
+          type: 'error',
+          code: 'ALIYUN_REALTIME_INVALID_AUDIO',
+          message: 'Aliyun realtime translated audio is invalid',
+        });
+        this.finishing = true;
+        this.socket.terminate();
+        return;
       }
+      this.options.onEvent({ type: 'translation.audio', audio, sampleRate: 24_000 });
       return;
     }
     if (type === 'session.finished') {

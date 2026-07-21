@@ -33,6 +33,18 @@ import {
   type RealtimeTranslationEvent,
   type RealtimeTranslationLanguage,
 } from './services/aliyun-realtime-translation.js';
+import {
+  callTranslationCallIdsForSocket,
+  callTranslationClientFinishInterruptsCall,
+  callTranslationInterruptionPayload,
+  callTranslationKeysForCall,
+  callTranslationLifecycleDiagnostic,
+  safeCallTranslationClientReason,
+} from './services/call-translation-lifecycle.js';
+import {
+  SerializedCallTranslationAudioQueue,
+  chunkPcm16Base64Audio,
+} from './services/call-translation-audio.js';
 import { friendCallHeartbeatFreshWhere } from './services/friend-call-liveness.js';
 
 interface SocketData {
@@ -66,6 +78,8 @@ interface ActiveCallTranslation {
   sourceLanguage: RealtimeTranslationLanguage;
   targetLanguage: RealtimeTranslationLanguage;
   session: AliyunRealtimeTranslationSession;
+  audioQueue: SerializedCallTranslationAudioQueue;
+  startedAt: number;
   lastAuthorizedAt: number;
 }
 
@@ -97,8 +111,8 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
   };
 
   const closeTranslationsForCall = (callId: string): void => {
-    for (const [key, active] of callTranslationSessions) {
-      if (active.callId === callId) closeCallTranslation(key, false);
+    for (const key of callTranslationKeysForCall(callTranslationSessions.values(), callId)) {
+      closeCallTranslation(key, false);
     }
   };
 
@@ -304,8 +318,7 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
             if (!active || callTranslationSessions.get(key) !== active) return;
             emitCallTranslationEvent(io, active, event, app);
             if (event.type === 'finished' || event.type === 'error') {
-              if (event.type === 'error') closeTranslationsForCall(callId);
-              else callTranslationSessions.delete(key);
+              closeTranslationsForCall(callId);
             }
           };
           let activeOutputAudio = outputAudio;
@@ -376,9 +389,18 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
             sourceLanguage,
             targetLanguage,
             session,
+            audioQueue: new SerializedCallTranslationAudioQueue(),
+            startedAt: Date.now(),
             lastAuthorizedAt: Date.now(),
           };
           callTranslationSessions.set(key, active);
+          app.log.info(
+            {
+              ...callTranslationLifecycleDiagnostic(active, 'ready'),
+              outputAudio: activeOutputAudio,
+            },
+            'Friend call realtime translation ready',
+          );
           const response = {
             callId,
             sourceLanguage,
@@ -408,12 +430,13 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
       },
     );
 
-    socket.on('friend.call.translation.audio', async (payload) => {
+    socket.on('friend.call.translation.audio', (payload) => {
       const callId = String(payload?.callId ?? '');
       const key = `${socket.id}:${callId}`;
       const active = callTranslationSessions.get(key);
       if (!active) return;
-      try {
+      void active.audioQueue.enqueue(async () => {
+        if (callTranslationSessions.get(key) !== active) return;
         if (Date.now() - active.lastAuthorizedAt >= CALL_TRANSLATION_AUTH_INTERVAL_MS) {
           const stillAuthorized = await prisma.friendCall.count({
             where: {
@@ -435,6 +458,7 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
           if (stillAuthorized !== 1) {
             throw new AppError(403, 'ACTIVE_FRIEND_CALL_NOT_FOUND', '通话已经结束');
           }
+          if (callTranslationSessions.get(key) !== active) return;
           active.lastAuthorizedAt = Date.now();
         }
         const audio = String(payload?.audio ?? '');
@@ -447,16 +471,40 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
           throw new AliyunRealtimeTranslationProtocolError('PCM audio payload is invalid');
         }
         active.session.appendAudio(Buffer.from(audio, 'base64'), sequence);
-      } catch (error) {
-        const translated = callTranslationSocketError(error);
-        socket.emit('friend.call.translation.error', { callId, ...translated });
-        closeCallTranslation(key, false);
-      }
+      }).catch((error) => {
+        if (callTranslationSessions.get(key) !== active) return;
+        app.log.warn(
+          {
+            ...callTranslationLifecycleDiagnostic(active, 'audio_append_failed'),
+            ...callTranslationSafeLogError(error),
+          },
+          'Friend call realtime translation audio append failed',
+        );
+        emitCallTranslationInterruption(io, active);
+        closeTranslationsForCall(callId);
+      });
     });
 
     socket.on('friend.call.translation.finish', (payload) => {
       const callId = String(payload?.callId ?? '');
-      closeCallTranslation(`${socket.id}:${callId}`, true);
+      const key = `${socket.id}:${callId}`;
+      const active = callTranslationSessions.get(key);
+      if (active) {
+        const clientReason = safeCallTranslationClientReason(payload?.reasonCode);
+        app.log.info(
+          {
+            ...callTranslationLifecycleDiagnostic(active, 'source_client_finished'),
+            clientReason,
+          },
+          'Friend call realtime translation source client finished',
+        );
+        if (callTranslationClientFinishInterruptsCall(clientReason)) {
+          emitCallTranslationInterruption(io, active);
+          closeTranslationsForCall(callId);
+          return;
+        }
+      }
+      closeCallTranslation(key, true);
     });
 
     // A join performs several authorization and recovery reads. Keep a single
@@ -602,8 +650,20 @@ export async function attachRealtime(app: FastifyInstance): Promise<Server> {
     });
 
     socket.on('disconnect', () => {
-      for (const [key, active] of callTranslationSessions) {
-        if (active.socketId === socket.id) closeCallTranslation(key, true);
+      for (const callId of callTranslationCallIdsForSocket(
+        callTranslationSessions.values(),
+        socket.id,
+      )) {
+        const active = [...callTranslationSessions.values()].find(
+          (candidate) => candidate.callId === callId && candidate.socketId === socket.id,
+        );
+        if (!active) continue;
+        app.log.warn(
+          callTranslationLifecycleDiagnostic(active, 'source_socket_disconnected'),
+          'Friend call realtime translation source socket disconnected',
+        );
+        emitCallTranslationInterruption(io, active);
+        closeTranslationsForCall(callId);
       }
       for (const [conversationId, participantId] of Object.entries(
         socket.data.participantIds,
@@ -1031,32 +1091,35 @@ function emitCallTranslationEvent(
   app: FastifyInstance,
 ): void {
   if (event.type === 'translation.audio') {
-    io.to(deviceRoomName(active.targetSubjectId, active.targetDeviceId)).emit(
-      'friend.call.translation.audio',
-      {
-        callId: active.callId,
-        speakerId: active.sourceSubjectId,
-        audio: event.audio,
-        sampleRate: event.sampleRate,
-      },
-    );
+    for (const audio of chunkPcm16Base64Audio(event.audio)) {
+      io.to(deviceRoomName(active.targetSubjectId, active.targetDeviceId)).emit(
+        'friend.call.translation.audio',
+        {
+          callId: active.callId,
+          speakerId: active.sourceSubjectId,
+          audio,
+          sampleRate: event.sampleRate,
+        },
+      );
+    }
     return;
   }
   if (event.type === 'error') {
     app.log.warn(
-      { callId: active.callId, code: safeCallTranslationDiagnostic(event.code) },
+      {
+        ...callTranslationLifecycleDiagnostic(active, 'provider_error'),
+        errorCode: safeCallTranslationDiagnostic(event.code),
+      },
       'Friend call realtime translation failed',
     );
-    io.to(deviceRoomName(active.sourceSubjectId, active.sourceDeviceId))
-      .to(deviceRoomName(active.targetSubjectId, active.targetDeviceId))
-      .emit('friend.call.translation.error', {
-        callId: active.callId,
-        code: 'REALTIME_TRANSLATION_FAILED',
-        message: '实时翻译服务暂时不可用，已恢复原声通话',
-      });
+    emitCallTranslationInterruption(io, active);
     return;
   }
   if (event.type === 'finished') {
+    app.log.info(
+      callTranslationLifecycleDiagnostic(active, 'provider_finished'),
+      'Friend call realtime translation provider session finished',
+    );
     io.to(deviceRoomName(active.sourceSubjectId, active.sourceDeviceId))
       .to(deviceRoomName(active.targetSubjectId, active.targetDeviceId))
       .emit('friend.call.translation.finished', { callId: active.callId });
@@ -1073,11 +1136,29 @@ function emitCallTranslationEvent(
     });
 }
 
+function emitCallTranslationInterruption(
+  io: Server,
+  active: ActiveCallTranslation,
+): void {
+  io.to(deviceRoomName(active.sourceSubjectId, active.sourceDeviceId))
+    .to(deviceRoomName(active.targetSubjectId, active.targetDeviceId))
+    .emit(
+      'friend.call.translation.error',
+      callTranslationInterruptionPayload(active.callId),
+    );
+}
+
 function callLanguage(value: string): RealtimeTranslationLanguage {
   return value.toLowerCase() === 'ru' ? 'ru' : 'zh';
 }
 
 function callTranslationSafeLogError(error: unknown): Record<string, unknown> {
+  if (error instanceof AppError) {
+    return {
+      errorName: error.name,
+      errorCode: safeCallTranslationDiagnostic(error.code),
+    };
+  }
   if (error instanceof AliyunRealtimeTranslationProtocolError) {
     return {
       errorName: error.name,
