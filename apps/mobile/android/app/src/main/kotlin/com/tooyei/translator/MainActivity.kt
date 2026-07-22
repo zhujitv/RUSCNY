@@ -1,6 +1,8 @@
 package com.tooyei.translator
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -15,11 +17,14 @@ import android.os.Looper
 import android.os.Bundle
 import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import com.alivc.rtc.AliRtcEngine
 import com.alivc.rtc.AliRtcEngineEventListener
 import com.alivc.rtc.AliRtcEngineNotify
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -67,6 +72,7 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
     private val rtcOwnerToken = RtcEngineRegistry.newOwnerToken()
     private var channel: MethodChannel? = null
     private var audioCueChannel: MethodChannel? = null
+    private var pushNotificationChannel: MethodChannel? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val shutdownCallbacks = mutableListOf<() -> Unit>()
     private var pendingJoin: PendingRtcJoin? = null
@@ -123,14 +129,12 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
     private var remoteRenderUserId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        captureIncomingCallAction(intent)
         super.onCreate(savedInstanceState)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        captureIncomingCallAction(intent)
     }
 
     override fun onResume() {
@@ -283,36 +287,193 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                             result.success(null)
                         }
                     }
-                    "cancelIncomingCall" -> {
+                    "dismissIncomingCall" -> {
+                        call.argument<String>("callId")?.let {
+                            IncomingCallNotification.dismiss(applicationContext, it)
+                        }
+                        result.success(null)
+                    }
+                    "closeIncomingCall" -> {
                         call.argument<String>("callId")?.let {
                             IncomingCallNotification.cancel(applicationContext, it)
                         }
                         result.success(null)
                     }
                     "consumeIncomingCallAction" -> {
-                        val preferences = getSharedPreferences(
-                            INCOMING_CALL_PREFERENCES,
-                            MODE_PRIVATE,
-                        )
-                        val action = preferences.getString(INCOMING_CALL_ACTION_KEY, null)
-                        val callId = preferences.getString(INCOMING_CALL_ID_KEY, null)
-                        preferences.edit()
-                            .remove(INCOMING_CALL_ACTION_KEY)
-                            .remove(INCOMING_CALL_ID_KEY)
-                            .apply()
                         result.success(
-                            if (action != null && callId != null) {
-                                mapOf("action" to action, "callId" to callId)
-                            } else {
-                                null
-                            },
+                            PushNotificationState.peekIncomingCallAction(
+                                applicationContext,
+                            ),
                         )
+                    }
+                    "ackIncomingCallAction" -> {
+                        val callId = call.argument<String>("callId")
+                        val action = call.argument<String>("action")
+                        if (callId.isNullOrBlank() || action.isNullOrBlank()) {
+                            result.error(
+                                "INVALID_INCOMING_CALL_ACTION",
+                                "Incoming call action acknowledgement is incomplete",
+                                null,
+                            )
+                        } else {
+                            result.success(
+                                PushNotificationState.acknowledgeIncomingCallAction(
+                                    applicationContext,
+                                    callId,
+                                    action,
+                                ),
+                            )
+                        }
                     }
                     "playTalkReady" -> playTalkReadyTone(result)
                     else -> result.notImplemented()
                 }
             }
         }
+        pushNotificationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.tooyei.translator/push_notifications",
+        ).also { bridge ->
+            PushNotificationBridge.attach(bridge)
+            bridge.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getRegistration" -> {
+                        val subjectId = call.argument<String>("subjectId")
+                        if (subjectId.isNullOrBlank() || subjectId.length > 200) {
+                            result.error(
+                                "INVALID_PUSH_SUBJECT",
+                                "Authenticated push subject is required",
+                                null,
+                            )
+                        } else {
+                            getPushRegistration(subjectId, result)
+                        }
+                    }
+                    "getStatus" -> result.success(pushNotificationStatus())
+                    "setIncomingCallsEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled")
+                        if (enabled == null) {
+                            result.error(
+                                "INVALID_PUSH_STATE",
+                                "Incoming-call push state is required",
+                                null,
+                            )
+                        } else {
+                            IncomingCallNotification.setIncomingCallsEnabled(
+                                applicationContext,
+                                enabled,
+                            )
+                            result.success(null)
+                        }
+                    }
+                    "clearBinding" -> {
+                        IncomingCallNotification.clearBindingAndCancelAll(
+                            applicationContext,
+                        )
+                        result.success(null)
+                    }
+                    "openNotificationSettings" -> result.success(
+                        openNotificationSettings(),
+                    )
+                    "openIncomingCallChannelSettings" -> result.success(
+                        openIncomingCallChannelSettings(),
+                    )
+                    "openFullScreenIntentSettings" -> result.success(
+                        openFullScreenIntentSettings(),
+                    )
+                    else -> result.notImplemented()
+                }
+            }
+        }
+    }
+
+    private fun getPushRegistration(subjectId: String, result: MethodChannel.Result) {
+        if (FirebaseApp.getApps(applicationContext).isEmpty()) {
+            result.success(null)
+            return
+        }
+        val bindingId = PushNotificationState.bindingForSubject(
+            applicationContext,
+            subjectId,
+        )
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            val fetched = if (task.isSuccessful) {
+                task.result?.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+            val token = fetched
+                ?: PushNotificationState.registrationId(applicationContext)
+            if (token != null) {
+                PushNotificationState.saveRegistrationId(applicationContext, token)
+            }
+            result.success(
+                if (token == null) null
+                else mapOf("registrationId" to token, "bindingId" to bindingId),
+            )
+        }
+    }
+
+    private fun pushNotificationStatus(): Map<String, Any> = mapOf(
+        "configured" to FirebaseApp.getApps(applicationContext).isNotEmpty(),
+        "hasRegistrationId" to
+            (PushNotificationState.registrationId(applicationContext) != null),
+        "incomingCallsEnabled" to
+            PushNotificationState.incomingCallsEnabled(applicationContext),
+        "notificationsEnabled" to
+            IncomingCallNotification.notificationsEnabled(applicationContext),
+        "channelEnabled" to
+            IncomingCallNotification.channelEnabled(applicationContext),
+        "fullScreenPermissionRequired" to
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE),
+        "fullScreenAllowed" to
+            IncomingCallNotification.fullScreenIntentAllowed(applicationContext),
+        "sdkInt" to Build.VERSION.SDK_INT,
+    )
+
+    private fun openNotificationSettings(): Boolean {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+        }
+        return launchSettings(intent)
+    }
+
+    private fun openIncomingCallChannelSettings(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return openNotificationSettings()
+        }
+        return launchSettings(
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, IncomingCallNotification.CHANNEL_ID)
+            },
+        )
+    }
+
+    private fun openFullScreenIntentSettings(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
+        return launchSettings(
+            Intent(
+                Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                Uri.parse("package:$packageName"),
+            ),
+        )
+    }
+
+    private fun launchSettings(intent: Intent): Boolean = try {
+        startActivity(intent)
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
     }
 
     private fun startRingbackTone() {
@@ -363,17 +524,6 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             }
             ringtone.play()
         }
-    }
-
-    private fun captureIncomingCallAction(intent: Intent?) {
-        val callId = intent?.getStringExtra(IncomingCallNotification.EXTRA_CALL_ID)
-        val action = intent?.getStringExtra(IncomingCallNotification.EXTRA_ACTION)
-        if (callId.isNullOrBlank() || action.isNullOrBlank()) return
-        getSharedPreferences(INCOMING_CALL_PREFERENCES, MODE_PRIVATE)
-            .edit()
-            .putString(INCOMING_CALL_ACTION_KEY, action)
-            .putString(INCOMING_CALL_ID_KEY, callId)
-            .apply()
     }
 
     private fun stopIncomingRingtone() {
@@ -2814,6 +2964,9 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         channel = null
         audioCueChannel?.setMethodCallHandler(null)
         audioCueChannel = null
+        PushNotificationBridge.detach(pushNotificationChannel)
+        pushNotificationChannel?.setMethodCallHandler(null)
+        pushNotificationChannel = null
         stopRingbackTone()
         stopIncomingRingtone()
         shutdownRtc()
@@ -2847,8 +3000,5 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         const val RINGBACK_INTERVAL_MS = 3_000L
         const val TALK_READY_VOLUME = 80
         const val TALK_READY_DURATION_MS = 180
-        const val INCOMING_CALL_PREFERENCES = "incoming_call_actions"
-        const val INCOMING_CALL_ACTION_KEY = "action"
-        const val INCOMING_CALL_ID_KEY = "call_id"
     }
 }
