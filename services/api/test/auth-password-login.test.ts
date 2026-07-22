@@ -217,6 +217,12 @@ describe('password login hardening', () => {
           userId: 'user-a',
           authenticatedAt: expect.any(Date),
         }),
+        update: expect.objectContaining({
+          sessionId: expect.any(String),
+          pushToken: null,
+          pushBindingId: null,
+          pushTokenUpdatedAt: null,
+        }),
       }),
     );
   });

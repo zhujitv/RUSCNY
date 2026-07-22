@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import WebSocket, { type RawData } from 'ws';
+import { isValidBase64Audio } from './call-translation-audio.js';
 import { serviceConfiguration } from './service-configuration.js';
 
 export type RealtimeTranslationLanguage = 'zh' | 'ru';
@@ -60,6 +61,20 @@ export class AliyunRealtimeTranslationProtocolError extends Error {
 
 export function isAliyunRealtimeAudioFallbackError(error: unknown): boolean {
   return error instanceof AliyunRealtimeTranslationProtocolError && error.retryWithoutAudio;
+}
+
+const droppableAudioErrorCodes = new Set([
+  'INVALID_SEQUENCE',
+  'INVALID_PCM_FRAME',
+  'INPUT_RATE_LIMIT',
+  'UPSTREAM_CONGESTED',
+]);
+
+export function isAliyunRealtimeDroppableAudioError(error: unknown): boolean {
+  return error instanceof AliyunRealtimeTranslationProtocolError &&
+    error.phase === 'stream' &&
+    typeof error.code === 'string' &&
+    droppableAudioErrorCodes.has(error.code);
 }
 
 export function buildAliyunRealtimeSessionUpdate(options: {
@@ -146,13 +161,22 @@ export class AliyunRealtimeTranslationSession {
 
   appendAudio(audio: Buffer, sequence: number): void {
     if (!this.ready || this.finishing || this.finished) {
-      throw new AliyunRealtimeTranslationProtocolError('Realtime translation session is not writable');
+      throw new AliyunRealtimeTranslationProtocolError(
+        'Realtime translation session is not writable',
+        { code: 'SESSION_NOT_WRITABLE', phase: 'stream' },
+      );
     }
     if (!Number.isSafeInteger(sequence) || sequence <= this.lastSequence) {
-      throw new AliyunRealtimeTranslationProtocolError('Audio sequence is invalid');
+      throw new AliyunRealtimeTranslationProtocolError(
+        'Audio sequence is invalid',
+        { code: 'INVALID_SEQUENCE', phase: 'stream' },
+      );
     }
     if (audio.length === 0 || audio.length > maximumAudioFrameBytes || audio.length % 2 !== 0) {
-      throw new AliyunRealtimeTranslationProtocolError('PCM audio frame is invalid');
+      throw new AliyunRealtimeTranslationProtocolError(
+        'PCM audio frame is invalid',
+        { code: 'INVALID_PCM_FRAME', phase: 'stream' },
+      );
     }
     const now = Date.now();
     if (now - this.audioWindowStartedAt >= 1_000) {
@@ -161,10 +185,16 @@ export class AliyunRealtimeTranslationSession {
     }
     this.audioBytesInWindow += audio.length;
     if (this.audioBytesInWindow > maximumAudioBytesPerSecond) {
-      throw new AliyunRealtimeTranslationProtocolError('PCM audio rate limit exceeded');
+      throw new AliyunRealtimeTranslationProtocolError(
+        'PCM audio rate limit exceeded',
+        { code: 'INPUT_RATE_LIMIT', phase: 'stream' },
+      );
     }
     if (this.socket.bufferedAmount > maximumBufferedBytes) {
-      throw new AliyunRealtimeTranslationProtocolError('Realtime translation upstream is congested');
+      throw new AliyunRealtimeTranslationProtocolError(
+        'Realtime translation upstream is congested',
+        { code: 'UPSTREAM_CONGESTED', phase: 'stream' },
+      );
     }
     this.lastSequence = sequence;
     this.send({
@@ -350,9 +380,17 @@ export class AliyunRealtimeTranslationSession {
     }
     if (type === 'response.audio.delta' && this.options.outputAudio) {
       const audio = stringValue(event.delta);
-      if (audio && audio.length <= 1_500_000 && /^[A-Za-z0-9+/]*={0,2}$/.test(audio)) {
-        this.options.onEvent({ type: 'translation.audio', audio, sampleRate: 24_000 });
+      if (audio.length > 1_500_000 || !isValidBase64Audio(audio)) {
+        this.options.onEvent({
+          type: 'error',
+          code: 'ALIYUN_REALTIME_INVALID_AUDIO',
+          message: 'Aliyun realtime translated audio is invalid',
+        });
+        this.finishing = true;
+        this.socket.terminate();
+        return;
       }
+      this.options.onEvent({ type: 'translation.audio', audio, sampleRate: 24_000 });
       return;
     }
     if (type === 'session.finished') {
@@ -363,7 +401,13 @@ export class AliyunRealtimeTranslationSession {
 
   private send(payload: Record<string, unknown>): void {
     if (this.socket.readyState !== WebSocket.OPEN) {
-      throw new AliyunRealtimeTranslationProtocolError('Aliyun realtime socket is not open');
+      throw new AliyunRealtimeTranslationProtocolError(
+        'Aliyun realtime socket is not open',
+        {
+          code: 'SOCKET_NOT_OPEN',
+          phase: this.ready ? 'stream' : 'session.update',
+        },
+      );
     }
     this.socket.send(JSON.stringify(payload));
   }
@@ -391,7 +435,15 @@ export function buildAliyunRealtimeUrl(
   if (url.hostname === 'cn-beijing.maas.aliyuncs.com') {
     url.hostname = `${workspaceId}.cn-beijing.maas.aliyuncs.com`;
   }
-  if (!url.hostname.endsWith('.maas.aliyuncs.com')) {
+  if (url.hostname === 'ap-southeast-1.maas.aliyuncs.com') {
+    url.hostname = `${workspaceId}.ap-southeast-1.maas.aliyuncs.com`;
+  }
+  const isWorkspaceEndpoint = url.hostname.endsWith('.maas.aliyuncs.com');
+  const isCompatibleEndpoint = [
+    'dashscope.aliyuncs.com',
+    'dashscope-intl.aliyuncs.com',
+  ].includes(url.hostname);
+  if (!isWorkspaceEndpoint && !isCompatibleEndpoint) {
     throw new AliyunRealtimeTranslationProtocolError('Aliyun realtime endpoint is not allowed');
   }
   url.searchParams.set('model', model);

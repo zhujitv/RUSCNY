@@ -112,6 +112,21 @@ describe('Aliyun China realtime translation endpoint', () => {
     expect(url).not.toContain('api-key');
   });
 
+  it('supports the official compatible endpoint with workspace authorization headers', () => {
+    const url = buildAliyunRealtimeUrl(
+      'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+      'workspace-123',
+      'qwen3.5-livetranslate-flash-realtime',
+    );
+    expect(url).toBe(
+      'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3.5-livetranslate-flash-realtime',
+    );
+    expect(validateServiceConfigurationValue(
+      'ALIYUN_REALTIME_WEBSOCKET_URL',
+      'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
+    )).toContain('dashscope.aliyuncs.com');
+  });
+
   it('rejects non-WSS and non-Aliyun endpoints', () => {
     expect(() => buildAliyunRealtimeUrl(
       'https://cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime',

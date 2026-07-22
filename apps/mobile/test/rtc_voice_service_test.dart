@@ -72,6 +72,17 @@ void main() {
     expect(state.reason, 'preview_bind_failed');
   });
 
+  test('video degradation is non-fatal to the base audio call', () {
+    const state = RtcVoiceState(
+      value: 'video_degraded',
+      category: 'video',
+      phase: 'remote_video_render',
+    );
+
+    expect(state.isVideoDegraded, isTrue);
+    expect(state.isError, isFalse);
+  });
+
   test('video join arguments carry media type and initial camera state', () {
     const credential = RtcCredential(
       channelId: 'channel-1',

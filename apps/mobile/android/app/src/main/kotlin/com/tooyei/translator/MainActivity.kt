@@ -1,6 +1,8 @@
 package com.tooyei.translator
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -13,16 +15,19 @@ import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.os.Bundle
+import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import com.alivc.rtc.AliRtcEngine
 import com.alivc.rtc.AliRtcEngineEventListener
 import com.alivc.rtc.AliRtcEngineNotify
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.min
 import org.json.JSONObject
@@ -67,6 +72,7 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
     private val rtcOwnerToken = RtcEngineRegistry.newOwnerToken()
     private var channel: MethodChannel? = null
     private var audioCueChannel: MethodChannel? = null
+    private var pushNotificationChannel: MethodChannel? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val shutdownCallbacks = mutableListOf<() -> Unit>()
     private var pendingJoin: PendingRtcJoin? = null
@@ -86,20 +92,28 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
     @Volatile private var localAudioPublished = false
     @Volatile private var localMicMuted = false
     private var joinedStateEmitted = false
+    private var joinCallbackTimeout: Runnable? = null
     private var audioPublishTimeout: Runnable? = null
     @Volatile private var videoPublishRequested = false
     @Volatile private var localVideoPublished = false
     private var videoPublishTimeout: Runnable? = null
+    private var cameraOperationGeneration = 0L
+    private var cameraSafetyConfirmation: Runnable? = null
     private val remoteOnlineUsers = mutableSetOf<String>()
     private val remoteAudioSubscribedUsers = mutableSetOf<String>()
     private val announcedRemoteUsers = mutableSetOf<String>()
     private var leaveTimeout: Runnable? = null
     private val translationCaptureLock = Any()
-    private val translationCaptureBuffer = ByteArrayOutputStream(6_400)
+    private val translationCaptureBuffer = ByteArray(TRANSLATION_CAPTURE_CHUNK_BYTES)
+    private var translationCaptureBufferSize = 0
     private val translationPlaybackLock = Any()
     private val translationPlaybackExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var translationPlaybackGeneration = 0L
     @Volatile private var translationCaptureEnabled = false
+    @Volatile private var translationFrameObserverAvailable = false
+    @Volatile private var translationCaptureMetadataLogged = false
+    @Volatile private var translationCaptureChunkLogged = false
+    @Volatile private var translationPlaybackWriteLogged = false
     private var translationAudioTrack: AudioTrack? = null
     private var translationAudioSampleRate = 0
     private var ringbackTone: ToneGenerator? = null
@@ -115,14 +129,12 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
     private var remoteRenderUserId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        captureIncomingCallAction(intent)
         super.onCreate(savedInstanceState)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        captureIncomingCallAction(intent)
     }
 
     override fun onResume() {
@@ -207,6 +219,11 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                             audio.size > MAX_TRANSLATION_AUDIO_BYTES ||
                             sampleRate !in 8_000..48_000
                         ) {
+                            Log.w(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC translated audio rejected bytes=${audio?.size ?: 0} " +
+                                    "sampleRate=$sampleRate",
+                            )
                             result.error(
                                 "INVALID_TRANSLATION_AUDIO",
                                 "Translated audio frame is invalid",
@@ -270,36 +287,193 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                             result.success(null)
                         }
                     }
-                    "cancelIncomingCall" -> {
+                    "dismissIncomingCall" -> {
+                        call.argument<String>("callId")?.let {
+                            IncomingCallNotification.dismiss(applicationContext, it)
+                        }
+                        result.success(null)
+                    }
+                    "closeIncomingCall" -> {
                         call.argument<String>("callId")?.let {
                             IncomingCallNotification.cancel(applicationContext, it)
                         }
                         result.success(null)
                     }
                     "consumeIncomingCallAction" -> {
-                        val preferences = getSharedPreferences(
-                            INCOMING_CALL_PREFERENCES,
-                            MODE_PRIVATE,
-                        )
-                        val action = preferences.getString(INCOMING_CALL_ACTION_KEY, null)
-                        val callId = preferences.getString(INCOMING_CALL_ID_KEY, null)
-                        preferences.edit()
-                            .remove(INCOMING_CALL_ACTION_KEY)
-                            .remove(INCOMING_CALL_ID_KEY)
-                            .apply()
                         result.success(
-                            if (action != null && callId != null) {
-                                mapOf("action" to action, "callId" to callId)
-                            } else {
-                                null
-                            },
+                            PushNotificationState.peekIncomingCallAction(
+                                applicationContext,
+                            ),
                         )
+                    }
+                    "ackIncomingCallAction" -> {
+                        val callId = call.argument<String>("callId")
+                        val action = call.argument<String>("action")
+                        if (callId.isNullOrBlank() || action.isNullOrBlank()) {
+                            result.error(
+                                "INVALID_INCOMING_CALL_ACTION",
+                                "Incoming call action acknowledgement is incomplete",
+                                null,
+                            )
+                        } else {
+                            result.success(
+                                PushNotificationState.acknowledgeIncomingCallAction(
+                                    applicationContext,
+                                    callId,
+                                    action,
+                                ),
+                            )
+                        }
                     }
                     "playTalkReady" -> playTalkReadyTone(result)
                     else -> result.notImplemented()
                 }
             }
         }
+        pushNotificationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.tooyei.translator/push_notifications",
+        ).also { bridge ->
+            PushNotificationBridge.attach(bridge)
+            bridge.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getRegistration" -> {
+                        val subjectId = call.argument<String>("subjectId")
+                        if (subjectId.isNullOrBlank() || subjectId.length > 200) {
+                            result.error(
+                                "INVALID_PUSH_SUBJECT",
+                                "Authenticated push subject is required",
+                                null,
+                            )
+                        } else {
+                            getPushRegistration(subjectId, result)
+                        }
+                    }
+                    "getStatus" -> result.success(pushNotificationStatus())
+                    "setIncomingCallsEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled")
+                        if (enabled == null) {
+                            result.error(
+                                "INVALID_PUSH_STATE",
+                                "Incoming-call push state is required",
+                                null,
+                            )
+                        } else {
+                            IncomingCallNotification.setIncomingCallsEnabled(
+                                applicationContext,
+                                enabled,
+                            )
+                            result.success(null)
+                        }
+                    }
+                    "clearBinding" -> {
+                        IncomingCallNotification.clearBindingAndCancelAll(
+                            applicationContext,
+                        )
+                        result.success(null)
+                    }
+                    "openNotificationSettings" -> result.success(
+                        openNotificationSettings(),
+                    )
+                    "openIncomingCallChannelSettings" -> result.success(
+                        openIncomingCallChannelSettings(),
+                    )
+                    "openFullScreenIntentSettings" -> result.success(
+                        openFullScreenIntentSettings(),
+                    )
+                    else -> result.notImplemented()
+                }
+            }
+        }
+    }
+
+    private fun getPushRegistration(subjectId: String, result: MethodChannel.Result) {
+        if (FirebaseApp.getApps(applicationContext).isEmpty()) {
+            result.success(null)
+            return
+        }
+        val bindingId = PushNotificationState.bindingForSubject(
+            applicationContext,
+            subjectId,
+        )
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            val fetched = if (task.isSuccessful) {
+                task.result?.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+            val token = fetched
+                ?: PushNotificationState.registrationId(applicationContext)
+            if (token != null) {
+                PushNotificationState.saveRegistrationId(applicationContext, token)
+            }
+            result.success(
+                if (token == null) null
+                else mapOf("registrationId" to token, "bindingId" to bindingId),
+            )
+        }
+    }
+
+    private fun pushNotificationStatus(): Map<String, Any> = mapOf(
+        "configured" to FirebaseApp.getApps(applicationContext).isNotEmpty(),
+        "hasRegistrationId" to
+            (PushNotificationState.registrationId(applicationContext) != null),
+        "incomingCallsEnabled" to
+            PushNotificationState.incomingCallsEnabled(applicationContext),
+        "notificationsEnabled" to
+            IncomingCallNotification.notificationsEnabled(applicationContext),
+        "channelEnabled" to
+            IncomingCallNotification.channelEnabled(applicationContext),
+        "fullScreenPermissionRequired" to
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE),
+        "fullScreenAllowed" to
+            IncomingCallNotification.fullScreenIntentAllowed(applicationContext),
+        "sdkInt" to Build.VERSION.SDK_INT,
+    )
+
+    private fun openNotificationSettings(): Boolean {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+        }
+        return launchSettings(intent)
+    }
+
+    private fun openIncomingCallChannelSettings(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return openNotificationSettings()
+        }
+        return launchSettings(
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, IncomingCallNotification.CHANNEL_ID)
+            },
+        )
+    }
+
+    private fun openFullScreenIntentSettings(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
+        return launchSettings(
+            Intent(
+                Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                Uri.parse("package:$packageName"),
+            ),
+        )
+    }
+
+    private fun launchSettings(intent: Intent): Boolean = try {
+        startActivity(intent)
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
     }
 
     private fun startRingbackTone() {
@@ -350,17 +524,6 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             }
             ringtone.play()
         }
-    }
-
-    private fun captureIncomingCallAction(intent: Intent?) {
-        val callId = intent?.getStringExtra(IncomingCallNotification.EXTRA_CALL_ID)
-        val action = intent?.getStringExtra(IncomingCallNotification.EXTRA_ACTION)
-        if (callId.isNullOrBlank() || action.isNullOrBlank()) return
-        getSharedPreferences(INCOMING_CALL_PREFERENCES, MODE_PRIVATE)
-            .edit()
-            .putString(INCOMING_CALL_ACTION_KEY, action)
-            .putString(INCOMING_CALL_ID_KEY, callId)
-            .apply()
     }
 
     private fun stopIncomingRingtone() {
@@ -658,7 +821,9 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         val userId = request.userId
         val token = request.token
         val displayName = request.displayName
-        val mediaType = request.mediaType
+        val requestedMediaType = request.mediaType
+        var effectiveMediaType = requestedMediaType
+        var videoFallbackReason: String? = null
         val initialCameraEnabled = request.initialCameraEnabled
         val result = request.result
         val generation = ++rtcGeneration
@@ -669,11 +834,13 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         localAudioPublished = false
         localMicMuted = false
         joinedStateEmitted = false
+        cancelJoinCallbackTimeout()
         cancelAudioPublishTimeout()
         videoPublishRequested = false
         localVideoPublished = false
         cancelVideoPublishTimeout()
-        rtcMediaType = mediaType
+        invalidateCameraSafetyConfirmation()
+        rtcMediaType = effectiveMediaType
         // This becomes true only after every preparation step succeeds.
         cameraEnabled = false
         activeRemoteUserId = null
@@ -682,13 +849,11 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         remoteAudioSubscribedUsers.clear()
         announcedRemoteUsers.clear()
         translationCaptureEnabled = false
+        translationFrameObserverAvailable = false
         resetTranslationCaptureBuffer()
         val setupSteps = listOf<Pair<String, () -> Int>>(
             "setAudioOnlyMode" to {
-                engine.setAudioOnlyMode(mediaType == RtcMediaType.AUDIO)
-            },
-            "setDefaultRemoteVideo" to {
-                engine.setDefaultSubscribeAllRemoteVideoStreams(mediaType == RtcMediaType.VIDEO)
+                engine.setAudioOnlyMode(requestedMediaType == RtcMediaType.AUDIO)
             },
             "setDefaultRemoteAudio" to {
                 engine.setDefaultSubscribeAllRemoteAudioStreams(true)
@@ -696,50 +861,87 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             "setDefaultAudioRoute" to {
                 engine.setDefaultAudioRoutetoSpeakerphone(true)
             },
-            "prejoinUnpublishLocalAudio" to {
-                engine.publishLocalAudioStream(false)
-            },
-            "prejoinUnpublishLocalVideo" to {
-                engine.publishLocalVideoStream(false)
-            },
         )
         for ((step, operation) in setupSteps) {
             val code = runRtcOperation(step, operation)
+            Log.i(RTC_DIAGNOSTIC_TAG, "ARTC setup step=$step result=$code")
             if (code != 0) {
                 failInitialRtcSetup(result, engine, code, step)
                 return
             }
         }
-        val enableInitialCamera = initialCameraEnabled && activityResumed
-        if (enableInitialCamera) {
-            val prepareCode = prepareLocalVideo(engine)
-            if (prepareCode != 0) {
-                cameraEnabled = false
-                if (!isCurrentRtcCallback(engine, generation)) {
-                    failJoinForCameraSafety(result, prepareCode, "prepare_rollback_failed")
-                    return
+        // This test emulator forwards the host microphone at a much lower
+        // level than a physical handset. Compensate only on emulator hardware;
+        // real phones keep the SDK's original 100% capture level so their
+        // noise floor and clipping behavior do not change.
+        val recordingVolume =
+            if (isRunningOnEmulator()) RTC_EMULATOR_RECORDING_VOLUME
+            else RTC_DEVICE_RECORDING_VOLUME
+        val recordingVolumeCode = runRtcOperation("setRecordingVolume") {
+            engine.setRecordingVolume(recordingVolume)
+        }
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC optional setup step=setRecordingVolume " +
+                "volume=$recordingVolume emulator=${isRunningOnEmulator()} " +
+                "result=$recordingVolumeCode",
+        )
+        if (recordingVolumeCode != 0) {
+            Log.w(
+                RTC_DIAGNOSTIC_TAG,
+                "ARTC recording gain unavailable result=$recordingVolumeCode; " +
+                    "continuing base call",
+            )
+        }
+        if (requestedMediaType == RtcMediaType.VIDEO) {
+            // Establish the room and its audio path first. Camera startup is
+            // intentionally deferred until onJoinChannelResult so a missing or
+            // busy camera degrades to an audio call instead of cancelling it.
+            val videoDefaults = listOf<Pair<String, () -> Int>>(
+                "setDefaultRemoteVideo" to {
+                    engine.setDefaultSubscribeAllRemoteVideoStreams(true)
+                },
+                "prejoinUnpublishLocalVideo" to {
+                    engine.publishLocalVideoStream(false)
+                },
+                "prejoinDisableLocalVideo" to { engine.enableLocalVideo(false) },
+            )
+            var videoSetupFailure = 0
+            var videoSetupFailureStep = ""
+            for ((step, operation) in videoDefaults) {
+                val code = runRtcOperation(step, operation)
+                Log.i(RTC_DIAGNOSTIC_TAG, "ARTC video setup step=$step result=$code")
+                if (videoSetupFailure == 0 && code != 0) {
+                    videoSetupFailure = code
+                    videoSetupFailureStep = step
                 }
-                notifyCameraDisabled(prepareCode, "prepare_failed")
             }
-        } else {
-            if (mediaType == RtcMediaType.VIDEO) {
-                // A video call may be accepted without camera permission. Do
-                // not rely on SDK defaults: explicitly keep local capture and
-                // publication off while still allowing remote video playback.
-                val disableCode = disableLocalVideoBestEffort(
-                    engine,
-                    publishBeforeJoin = true,
-                    fatalReason = "prejoin_disable_failed",
-                )
-                Log.i(
+            if (videoSetupFailure != 0) {
+                // If the engine cannot prove video is disabled before join,
+                // fail closed to its documented audio-only mode. The call can
+                // still connect, and Flutter is notified after the audio room
+                // is ready instead of showing a generic connection failure.
+                val fallbackCode = runRtcOperation("fallbackToAudioOnly") {
+                    engine.setAudioOnlyMode(true)
+                }
+                Log.w(
                     RTC_DIAGNOSTIC_TAG,
-                    "ARTC local camera disabled before join result=$disableCode",
+                    "ARTC video prejoin setup failed step=$videoSetupFailureStep " +
+                        "result=$videoSetupFailure fallback=$fallbackCode",
                 )
-                if (disableCode != 0) {
-                    failJoinForCameraSafety(result, disableCode, "prejoin_disable_failed")
+                if (fallbackCode != 0) {
+                    failInitialRtcSetup(
+                        result,
+                        engine,
+                        fallbackCode,
+                        "fallbackToAudioOnly",
+                    )
                     return
                 }
+                effectiveMediaType = RtcMediaType.AUDIO
+                videoFallbackReason = "prejoin_$videoSetupFailureStep"
             }
+            rtcMediaType = effectiveMediaType
             localVideoPlatformView?.clearRenderView()
             localRtcRenderView = null
         }
@@ -778,20 +980,25 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                 observerConfig,
             )
         }
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC optional setup step=enableAudioFrameObserver result=$audioObserverCode",
+        )
+        translationFrameObserverAvailable = audioObserverCode == 0
         if (audioObserverCode != 0) {
-            failInitialRtcSetup(
-                result,
-                engine,
-                audioObserverCode,
-                "enableAudioFrameObserver",
+            // Frame observation powers translation, but it is not required for
+            // the two participants to establish a normal audio call.
+            Log.w(
+                RTC_DIAGNOSTIC_TAG,
+                "ARTC translation frame observer unavailable result=$audioObserverCode",
             )
-            return
         }
         engine.setRtcEngineEventListener(object : AliRtcEngineEventListener() {
             override fun onJoinChannelResult(resultCode: Int, channelName: String?, joinedUserId: String?, elapsed: Int) {
                 if (!isCurrentRtcCallback(engine, generation)) return
                 mainHandler.post {
                     if (!isCurrentRtcCallback(engine, generation)) return@post
+                    cancelJoinCallbackTimeout()
                     val category = classifyAsyncJoinFailure(resultCode)
                     Log.i(
                         RTC_DIAGNOSTIC_TAG,
@@ -809,23 +1016,41 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                         return@post
                     }
                     rtcChannelJoinedSuccessfully = true
+                    // ARTC may auto-publish the default microphone as part of
+                    // joining. A publish callback that arrived first is kept,
+                    // and channel readiness can now complete immediately.
+                    emitJoinedIfReady()
+                    if (videoFallbackReason != null) {
+                        notifyCameraDisabled(
+                            RTC_OPERATION_UNAVAILABLE,
+                            videoFallbackReason!!,
+                        )
+                    }
                     val focusCode = runRtcOperation("requestAudioFocus") {
                         engine.requestAudioFocus()
                     }
-                    if (focusCode != 0) {
-                        reportRtcErrorAndScheduleShutdown(
-                            engine,
-                            generation,
-                            focusCode,
-                            phase = "audio_focus",
-                            category = "audio",
+                    // requestAudioFocus is the exception to ARTC's usual
+                    // return convention: 1 means granted and 0 means denied.
+                    // The SDK also requests focus automatically, so this is
+                    // best-effort and must not tear down an established room.
+                    Log.i(
+                        RTC_DIAGNOSTIC_TAG,
+                        "ARTC requestAudioFocus result=$focusCode granted=${focusCode == 1}",
+                    )
+                    if (focusCode != 1) {
+                        Log.w(
+                            RTC_DIAGNOSTIC_TAG,
+                            "ARTC audio focus not explicitly granted; continuing base call",
                         )
-                        return@post
                     }
                     audioPublishRequested = true
                     val audioPublishCode = runRtcOperation("publishLocalAudio") {
                         engine.publishLocalAudioStream(true)
                     }
+                    Log.i(
+                        RTC_DIAGNOSTIC_TAG,
+                        "ARTC publishLocalAudio requested result=$audioPublishCode",
+                    )
                     if (audioPublishCode != 0) {
                         reportRtcErrorAndScheduleShutdown(
                             engine,
@@ -836,32 +1061,30 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                         )
                         return@post
                     }
-                    scheduleAudioPublishTimeout(engine, generation)
+                    if (!localAudioPublished) {
+                        scheduleAudioPublishTimeout(engine, generation)
+                    }
                     if (rtcMediaType == RtcMediaType.VIDEO) {
-                        val subscribeCode = runRtcOperation("subscribeAllRemoteVideo") {
-                            engine.subscribeAllRemoteVideoStreams(true)
-                        }
-                        if (subscribeCode != 0) {
-                            reportRtcErrorAndScheduleShutdown(
+                        if (initialCameraEnabled && activityResumed) {
+                            val cameraCode = enableLocalVideoTransaction(
                                 engine,
-                                generation,
-                                subscribeCode,
-                                phase = "video_subscribe",
-                                category = "video",
+                                publish = true,
                             )
-                            return@post
-                        }
-                        if (cameraEnabled) {
-                            requestLocalVideoPublish(engine, generation, "publish_failed")
+                            if (cameraCode != 0) {
+                                Log.w(
+                                    RTC_DIAGNOSTIC_TAG,
+                                    "ARTC post-join camera enable result=$cameraCode; " +
+                                        "continuing audio call",
+                                )
+                            }
                         } else {
                             val unpublishCode = runRtcOperation("keepVideoUnpublished") {
                                 engine.publishLocalVideoStream(false)
                             }
                             if (unpublishCode != 0) {
-                                forceDestroyForCameraFailure(
-                                    engine,
-                                    unpublishCode,
-                                    "joined_unpublish_failed",
+                                Log.w(
+                                    RTC_DIAGNOSTIC_TAG,
+                                    "ARTC unable to confirm video unpublish result=$unpublishCode",
                                 )
                             }
                         }
@@ -917,6 +1140,42 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                 if (!isCurrentRtcCallback(engine, generation)) return
                 mainHandler.post {
                     if (!isCurrentRtcCallback(engine, generation)) return@post
+                    if (rtcMediaType == RtcMediaType.VIDEO && isCameraRuntimeError(error)) {
+                        val rollbackCode = rollbackLocalVideo(
+                            engine,
+                            "runtime_camera_rollback_failed",
+                        )
+                        if (rollbackCode == 0) {
+                            Log.w(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC camera runtime error=$error rollback=0; " +
+                                    "continuing audio call",
+                            )
+                            notifyCameraDisabled(error, "runtime_camera_error")
+                        } else {
+                            Log.e(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC camera runtime error=$error rollback=$rollbackCode; " +
+                                    "camera safety shutdown requested",
+                            )
+                        }
+                        return@post
+                    }
+                    if (rtcMediaType == RtcMediaType.VIDEO && isRemoteVideoRuntimeError(error)) {
+                        val remoteUserId = activeRemoteUserId
+                        activeRemoteUserId = null
+                        if (!remoteUserId.isNullOrBlank()) {
+                            val unbindCode = clearRemoteVideoRenderView(engine, remoteUserId)
+                            if (unbindCode != 0) {
+                                Log.w(
+                                    RTC_DIAGNOSTIC_TAG,
+                                    "ARTC remote video error=$error unbind=$unbindCode",
+                                )
+                            }
+                        }
+                        notifyVideoDegraded(error, "runtime_remote_video")
+                        return@post
+                    }
                     reportRtcErrorAndScheduleShutdown(
                         engine,
                         generation,
@@ -956,6 +1215,19 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                 }
             }
 
+            override fun onNetworkQualityChanged(
+                remoteUserId: String?,
+                upstreamQuality: AliRtcEngine.AliRtcNetworkQuality?,
+                downstreamQuality: AliRtcEngine.AliRtcNetworkQuality?,
+            ) {
+                if (!isCurrentRtcCallback(engine, generation)) return
+                Log.i(
+                    RTC_DIAGNOSTIC_TAG,
+                    "ARTC network quality userPresent=${!remoteUserId.isNullOrBlank()} " +
+                        "upstream=$upstreamQuality downstream=$downstreamQuality",
+                )
+            }
+
             override fun OnLocalDeviceException(
                 deviceType: AliRtcEngine.AliRtcEngineLocalDeviceType?,
                 exceptionType: AliRtcEngine.AliRtcEngineLocalDeviceExceptionType?,
@@ -977,9 +1249,20 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                             "device_exception_rollback_failed",
                         )
                         if (rollbackCode == 0) {
+                            Log.w(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC camera device exception=${exceptionType?.value} " +
+                                    "rollback=0; continuing audio call",
+                            )
                             notifyCameraDisabled(
                                 exceptionType?.value ?: RTC_OPERATION_UNAVAILABLE,
                                 "device_exception",
+                            )
+                        } else {
+                            Log.e(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC camera device exception=${exceptionType?.value} " +
+                                    "rollback=$rollbackCode; camera safety shutdown requested",
                             )
                         }
                         return@post
@@ -1092,6 +1375,52 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             }
         })
         engine.setRtcEngineNotify(object : AliRtcEngineNotify() {
+            override fun onRtcLocalAudioStats(stats: AliRtcEngine.AliRtcLocalAudioStats?) {
+                if (!isCurrentRtcCallback(engine, generation) || stats == null) return
+                Log.i(
+                    RTC_DIAGNOSTIC_TAG,
+                    "ARTC local audio stats sampleRate=${stats.sentSamplerate} " +
+                        "channels=${stats.numChannel} bitrate=${stats.sentBitrate} " +
+                        "targetBitrate=${stats.targetEncodeBitrate} " +
+                        "actualBitrate=${stats.actualEncodeBitrate} " +
+                        "loss=${stats.sentLoss} rtt=${stats.rtt}",
+                )
+            }
+
+            override fun onRtcRemoteAudioStats(stats: AliRtcEngine.AliRtcRemoteAudioStats?) {
+                if (!isCurrentRtcCallback(engine, generation) || stats == null) return
+                Log.i(
+                    RTC_DIAGNOSTIC_TAG,
+                    "ARTC remote audio stats userPresent=${!stats.userId.isNullOrBlank()} " +
+                        "sampleRate=${stats.sampleRate} channels=${stats.channels} " +
+                        "bitrate=${stats.rcvdBitrate} loss=${stats.audioLossRate} " +
+                        "packetLoss=${stats.packetLossRate} frozenRate=${stats.audioTotalFrozenRate} " +
+                        "networkDelay=${stats.network_transport_delay} " +
+                        "jitterDelay=${stats.jitter_buffer_delay} e2eDelay=${stats.e2eDelay} " +
+                        "rtt=${stats.rtt}",
+                )
+            }
+
+            override fun onRtcAudioStutterStats(stats: AliRtcEngine.AliRtcAudioStutterStats?) {
+                if (!isCurrentRtcCallback(engine, generation) || stats == null) return
+                Log.w(
+                    RTC_DIAGNOSTIC_TAG,
+                    "ARTC audio stutter userPresent=${!stats.userId.isNullOrBlank()} " +
+                        "track=${stats.audioTrack} module=${stats.reasonModule} " +
+                        "description=${stats.desc}",
+                )
+            }
+
+            override fun onAudioFocusChange(focusChange: Int) {
+                if (!isCurrentRtcCallback(engine, generation)) return
+                Log.i(RTC_DIAGNOSTIC_TAG, "ARTC audio focus changed value=$focusChange")
+            }
+
+            override fun onAudioRouteChanged(route: AliRtcEngine.AliRtcAudioRouteType?) {
+                if (!isCurrentRtcCallback(engine, generation)) return
+                Log.i(RTC_DIAGNOSTIC_TAG, "ARTC audio route changed route=$route")
+            }
+
             override fun onRemoteUserOnLineNotify(remoteUserId: String?, elapsed: Int) {
                 if (!isCurrentRtcCallback(engine, generation)) return
                 Log.i(
@@ -1102,50 +1431,10 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                     if (!isCurrentRtcCallback(engine, generation)) return@post
                     if (remoteUserId.isNullOrBlank()) return@post
                     remoteOnlineUsers.add(remoteUserId)
-                    val audioSubscribeCode = runRtcOperation("subscribeRemoteAudio") {
-                        engine.subscribeRemoteAudioStream(remoteUserId, true)
-                    }
-                    if (audioSubscribeCode != 0) {
-                        reportRtcErrorAndScheduleShutdown(
-                            engine,
-                            generation,
-                            audioSubscribeCode,
-                            phase = "remote_audio_subscribe",
-                            category = "audio",
-                        )
-                        return@post
-                    }
-                    if (rtcMediaType == RtcMediaType.VIDEO && !remoteUserId.isNullOrBlank()) {
-                        activeRemoteUserId = remoteUserId
-                        val bindCode = bindRemoteVideoView(engine, remoteUserId)
-                        if (bindCode != 0) {
-                            reportRtcErrorAndScheduleShutdown(
-                                engine,
-                                generation,
-                                bindCode,
-                                phase = "remote_video_render",
-                                category = "video",
-                            )
-                            return@post
-                        }
-                        val subscribeCode = runRtcOperation("subscribeRemoteVideo") {
-                            engine.subscribeRemoteVideoStream(
-                                remoteUserId,
-                                AliRtcEngine.AliRtcVideoTrack.AliRtcVideoTrackCamera,
-                                true,
-                            )
-                        }
-                        if (subscribeCode != 0) {
-                            reportRtcErrorAndScheduleShutdown(
-                                engine,
-                                generation,
-                                subscribeCode,
-                                phase = "remote_video_subscribe",
-                                category = "video",
-                            )
-                            return@post
-                        }
-                    }
+                    // Audio and video subscriptions were configured before
+                    // join. Do not repeat a per-user subscription here: a
+                    // queued online callback can run after that user has
+                    // already left and ARTC then reports SUBSCRIBE_INVALID.
                     emitPeerJoinedIfReady(remoteUserId)
                 }
             }
@@ -1165,44 +1454,16 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                     if (!isCurrentRtcCallback(engine, generation)) return@post
                     if (rtcMediaType != RtcMediaType.VIDEO) return@post
                     if (hasCamera) {
+                        if (remoteUserId !in remoteOnlineUsers) return@post
                         activeRemoteUserId = remoteUserId
                         val bindCode = bindRemoteVideoView(engine, remoteUserId)
                         if (bindCode != 0) {
-                            reportRtcErrorAndScheduleShutdown(
-                                engine,
-                                generation,
-                                bindCode,
-                                phase = "remote_video_render",
-                                category = "video",
-                            )
-                            return@post
-                        }
-                        val subscribeCode = runRtcOperation("subscribeRemoteVideo") {
-                            engine.subscribeRemoteVideoStream(
-                                remoteUserId,
-                                AliRtcEngine.AliRtcVideoTrack.AliRtcVideoTrackCamera,
-                                true,
-                            )
-                        }
-                        if (subscribeCode != 0) {
-                            reportRtcErrorAndScheduleShutdown(
-                                engine,
-                                generation,
-                                subscribeCode,
-                                phase = "remote_video_subscribe",
-                                category = "video",
-                            )
+                            notifyVideoDegraded(bindCode, "remote_video_render")
                         }
                     } else if (activeRemoteUserId == remoteUserId) {
                         val unbindCode = clearRemoteVideoRenderView(engine, remoteUserId)
                         if (unbindCode != 0) {
-                            reportRtcErrorAndScheduleShutdown(
-                                engine,
-                                generation,
-                                unbindCode,
-                                phase = "remote_video_unbind",
-                                category = "video",
-                            )
+                            notifyVideoDegraded(unbindCode, "remote_video_unbind")
                         }
                     }
                 }
@@ -1262,6 +1523,10 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                 }
             }
         })
+        // Observe a possible SDK default microphone publication from the very
+        // first join callback. Explicit publish(true) after a successful join
+        // remains the idempotent request for clients where it is not automatic.
+        audioPublishRequested = true
         val code = runRtcOperation("joinChannel") {
             engine.joinChannel(token, channelId, userId, displayName)
         }
@@ -1282,7 +1547,35 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             shutdownRtc()
             return
         }
+        scheduleJoinCallbackTimeout(engine, generation)
         result.success(code)
+    }
+
+    private fun scheduleJoinCallbackTimeout(engine: AliRtcEngine, generation: Long) {
+        cancelJoinCallbackTimeout()
+        val timeout = Runnable {
+            joinCallbackTimeout = null
+            if (
+                !isCurrentRtcCallback(engine, generation) ||
+                rtcChannelJoinedSuccessfully
+            ) {
+                return@Runnable
+            }
+            reportRtcErrorAndScheduleShutdown(
+                engine,
+                generation,
+                RTC_OPERATION_UNAVAILABLE,
+                phase = "async_join_timeout",
+                category = "network",
+            )
+        }
+        joinCallbackTimeout = timeout
+        mainHandler.postDelayed(timeout, JOIN_CALLBACK_TIMEOUT_MS)
+    }
+
+    private fun cancelJoinCallbackTimeout() {
+        joinCallbackTimeout?.let(mainHandler::removeCallbacks)
+        joinCallbackTimeout = null
     }
 
     private fun handleLocalAudioPublishState(
@@ -1291,6 +1584,10 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         newState: AliRtcEngine.AliRtcPublishState?,
     ) {
         if (!audioPublishRequested || !isCurrentRtcCallback(engine, generation)) return
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC local audio publish state=$newState generation=$generation",
+        )
         mainHandler.post {
             if (!audioPublishRequested || !isCurrentRtcCallback(engine, generation)) {
                 return@post
@@ -1371,6 +1668,10 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         newState: AliRtcEngine.AliRtcSubscribeState?,
     ) {
         if (remoteUserId.isNullOrBlank() || !isCurrentRtcCallback(engine, generation)) return
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC remote audio subscribe state=$newState generation=$generation",
+        )
         mainHandler.post {
             if (!isCurrentRtcCallback(engine, generation)) return@post
             when (newState) {
@@ -1421,6 +1722,11 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             when (newState) {
                 AliRtcEngine.AliRtcPublishState.AliRtcStatsPublished -> {
                     if (!cameraEnabled || !videoPublishRequested) {
+                        // The callback is authoritative proof that a camera
+                        // track reached the room. Preserve that fact through
+                        // rollback so an unpublish failure forces engine
+                        // destruction instead of relying on cameraOn alone.
+                        localVideoPublished = true
                         val rollbackCode = rollbackLocalVideo(
                             engine,
                             "unexpected_publish_rollback_failed",
@@ -1540,12 +1846,34 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         else -> "service"
     }
 
+    private fun isCameraRuntimeError(code: Int): Boolean = when (code) {
+        ERR_CAMERA_OPEN_FAIL,
+        ERR_CAMERA_INTERRUPT,
+        ERR_VIDEO_DISPLAY_OPEN_FAIL,
+        ERR_VIDEO_DISPLAY_INTERRUPT,
+        ERR_PUBLISH_VIDEO_STREAM_FAILED,
+        ERR_PUBLISH_DUAL_STREAM_FAILED,
+        -> true
+        else -> false
+    }
+
+    private fun isRemoteVideoRuntimeError(code: Int): Boolean = when (code) {
+        ERR_SUBSCRIBE_VIDEO_STREAM_FAILED,
+        ERR_SUBSCRIBE_DUAL_STREAM_FAILED,
+        -> true
+        else -> false
+    }
+
     private fun failInitialRtcSetup(
         result: MethodChannel.Result,
         engine: AliRtcEngine,
         code: Int,
         step: String,
     ) {
+        Log.e(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC required setup failed step=$step result=$code",
+        )
         result.error(
             "RTC_SETUP_FAILED",
             "RTC engine setup failed",
@@ -1568,6 +1896,11 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         message: String? = null,
     ) {
         if (!isCurrentRtcCallback(engine, generation)) return
+        Log.e(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC fatal error phase=$phase category=$category code=$code " +
+                "messagePresent=${!message.isNullOrBlank()}",
+        )
         deferredShutdownEngine = engine
         channel?.invokeMethod(
             "state",
@@ -1651,13 +1984,7 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                     ) {
                         val bindCode = bindRemoteVideoView(engine, remoteUserId)
                         if (bindCode != 0 && !shuttingDown) {
-                            reportRtcErrorAndScheduleShutdown(
-                                engine,
-                                rtcGeneration,
-                                bindCode,
-                                phase = "remote_video_render",
-                                category = "video",
-                            )
+                            notifyVideoDegraded(bindCode, "remote_video_render")
                         }
                     }
                 }
@@ -1674,13 +2001,7 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                         if (engine != null && localRtcRenderView != null && !shuttingDown) {
                             val code = clearLocalVideoRenderView(engine)
                             if (code != 0) {
-                                reportRtcErrorAndScheduleShutdown(
-                                    engine,
-                                    rtcGeneration,
-                                    code,
-                                    phase = "local_video_unbind",
-                                    category = "video",
-                                )
+                                notifyVideoDegraded(code, "local_video_unbind")
                             }
                         }
                         localVideoPlatformView = null
@@ -1699,13 +2020,7 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                         ) {
                             val code = clearRemoteVideoRenderView(engine, remoteUserId)
                             if (code != 0) {
-                                reportRtcErrorAndScheduleShutdown(
-                                    engine,
-                                    rtcGeneration,
-                                    code,
-                                    phase = "remote_video_unbind",
-                                    category = "video",
-                                )
+                                notifyVideoDegraded(code, "remote_video_unbind")
                             }
                         }
                         remoteVideoPlatformView = null
@@ -1717,24 +2032,28 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         }
     }
 
-    private fun prepareLocalVideo(engine: AliRtcEngine): Int =
-        enableLocalVideoTransaction(engine, publish = false)
-
     private fun enableLocalVideoTransaction(
         engine: AliRtcEngine,
         publish: Boolean,
     ): Int {
+        // A deliberate new camera operation supersedes any delayed check from
+        // an earlier cleanup. Without this generation boundary, reopening the
+        // camera during the 300 ms safety window could be mistaken for a
+        // failed old shutdown and destroy an otherwise healthy call.
+        invalidateCameraSafetyConfirmation()
         val steps = listOf<Pair<String, () -> Int>>(
-            "enableLocal" to { engine.enableLocalVideo(true) },
-            "enableCapture" to { engine.enableVideoCapture(true) },
             "bindPreview" to { bindLocalVideoView(engine) },
+            "enableLocal" to { engine.enableLocalVideo(true) },
             "startPreview" to { engine.startPreview() },
         )
         for ((name, operation) in steps) {
             val code = runRtcOperation(name, operation)
             if (code != 0) {
                 Log.w(RTC_DIAGNOSTIC_TAG, "ARTC local video enable failed step=$name code=$code")
-                rollbackLocalVideo(engine, "enable_rollback_failed")
+                val rollbackCode = rollbackLocalVideo(engine, "enable_rollback_failed")
+                if (rollbackCode == 0) {
+                    notifyCameraDisabled(code, "enable_${name}_failed")
+                }
                 return code
             }
         }
@@ -1841,11 +2160,6 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                 engine.isInCall
             } catch (error: Exception) {
                 Log.e(RTC_DIAGNOSTIC_TAG, "ARTC unable to determine video publish state", error)
-                forceDestroyForCameraFailure(
-                    engine,
-                    RTC_OPERATION_UNAVAILABLE,
-                    "enable_state_unknown",
-                )
                 return RTC_OPERATION_UNAVAILABLE
             }
             val code = enableLocalVideoTransaction(engine, publish = publish)
@@ -1868,13 +2182,17 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         publishBeforeJoin: Boolean = false,
         fatalReason: String,
     ): Int {
+        val operationGeneration = invalidateCameraSafetyConfirmation()
+        val publicationWasActive = videoPublishRequested || localVideoPublished
         videoPublishRequested = false
         localVideoPublished = false
         cancelVideoPublishTimeout()
         var firstFailure = 0
+        var unpublishFailure = 0
         fun record(name: String, operation: () -> Int) {
             val code = runRtcOperation(name, operation)
             if (firstFailure == 0 && code != 0) firstFailure = code
+            if (name == "unpublish" && code != 0) unpublishFailure = code
         }
         val isInCall = try {
             engine.isInCall
@@ -1889,14 +2207,80 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             record("unpublish") { engine.publishLocalVideoStream(false) }
         }
         record("stopPreview") { engine.stopPreview() }
-        record("disableCapture") { engine.enableVideoCapture(false) }
         record("disableLocal") { engine.enableLocalVideo(false) }
         cameraEnabled = false
         record("unbindLocalView") { clearLocalVideoRenderView(engine) }
+        if (publicationWasActive && unpublishFailure != 0) {
+            // Camera-off alone does not prove that an already published remote
+            // track was withdrawn. Destroy is the only privacy-safe boundary.
+            forceDestroyForCameraFailure(engine, unpublishFailure, fatalReason)
+            return unpublishFailure
+        }
         if (firstFailure != 0) {
-            forceDestroyForCameraFailure(engine, firstFailure, fatalReason)
+            // ARTC camera shutdown is asynchronous. Re-check after the state
+            // machine settles instead of destroying a healthy audio call on a
+            // transient isCameraOn=true result.
+            scheduleCameraSafetyConfirmation(
+                engine,
+                firstFailure,
+                fatalReason,
+                operationGeneration,
+            )
+            Log.w(
+                RTC_DIAGNOSTIC_TAG,
+                "ARTC camera cleanup had non-zero result=$firstFailure; " +
+                    "scheduled safety confirmation",
+            )
+            return 0
         }
         return firstFailure
+    }
+
+    private fun scheduleCameraSafetyConfirmation(
+        engine: AliRtcEngine,
+        code: Int,
+        reason: String,
+        operationGeneration: Long,
+    ) {
+        lateinit var confirmation: Runnable
+        confirmation = Runnable {
+            if (cameraSafetyConfirmation === confirmation) {
+                cameraSafetyConfirmation = null
+            }
+            if (
+                cameraOperationGeneration != operationGeneration ||
+                rtcEngine !== engine ||
+                fatalCameraEngine === engine ||
+                shuttingDown
+            ) return@Runnable
+            val cameraStillOn = try {
+                engine.isCameraOn
+            } catch (error: Exception) {
+                Log.e(
+                    RTC_DIAGNOSTIC_TAG,
+                    "ARTC unable to verify camera state after delayed rollback",
+                    error,
+                )
+                true
+            }
+            if (cameraStillOn) {
+                forceDestroyForCameraFailure(engine, code, reason)
+            } else {
+                Log.i(
+                    RTC_DIAGNOSTIC_TAG,
+                    "ARTC delayed camera safety confirmation succeeded reason=$reason",
+                )
+            }
+        }
+        cameraSafetyConfirmation = confirmation
+        mainHandler.postDelayed(confirmation, CAMERA_SHUTDOWN_CONFIRM_DELAY_MS)
+    }
+
+    private fun invalidateCameraSafetyConfirmation(): Long {
+        cameraSafetyConfirmation?.let(mainHandler::removeCallbacks)
+        cameraSafetyConfirmation = null
+        cameraOperationGeneration += 1
+        return cameraOperationGeneration
     }
 
     private fun rollbackLocalVideo(engine: AliRtcEngine, fatalReason: String): Int {
@@ -1929,19 +2313,19 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         )
     }
 
-    private fun failJoinForCameraSafety(
-        result: MethodChannel.Result,
-        code: Int,
-        reason: String,
-    ) {
-        result.error(
-            "RTC_CAMERA_SAFETY_FAILURE",
-            "Unable to confirm that the local camera is disabled",
+    private fun notifyVideoDegraded(code: Int, phase: String) {
+        if (shuttingDown) return
+        Log.w(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC video degraded phase=$phase code=$code; continuing audio call",
+        )
+        channel?.invokeMethod(
+            "state",
             mapOf(
-                "phase" to "camera_safety",
-                "category" to "camera",
+                "state" to "video_degraded",
+                "category" to "video",
+                "phase" to phase,
                 "code" to code,
-                "reason" to reason,
             ),
         )
     }
@@ -1959,8 +2343,10 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         fatalCameraEngine = engine
         ++rtcGeneration
         shuttingDown = true
+        cancelJoinCallbackTimeout()
         cancelAudioPublishTimeout()
         cancelVideoPublishTimeout()
+        invalidateCameraSafetyConfirmation()
         rtcChannelJoinedSuccessfully = false
         audioPublishRequested = false
         localAudioPublished = false
@@ -2098,6 +2484,11 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         return code
     }
 
+    private fun isRunningOnEmulator(): Boolean =
+        Build.HARDWARE.equals("ranchu", ignoreCase = true) ||
+            Build.PRODUCT.startsWith("sdk_", ignoreCase = true) ||
+            Build.FINGERPRINT.contains("generic", ignoreCase = true)
+
     private fun setSpeakerEnabled(enabled: Boolean): Int {
         val engine = controllableRtcEngine() ?: return RTC_OPERATION_UNAVAILABLE
         return runRtcOperation("enableSpeakerphone") {
@@ -2129,9 +2520,23 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
             translationCaptureEnabled = false
             resetTranslationCaptureBuffer()
             stopTranslationAudio()
-            return runRtcOperation("restoreRemoteAudioPlaying") {
+            translationPlaybackWriteLogged = false
+            val code = runRtcOperation("restoreRemoteAudioPlaying") {
                 engine.muteAllRemoteAudioPlaying(false)
             }
+            Log.i(
+                RTC_DIAGNOSTIC_TAG,
+                "ARTC translation mode enabled=false observer=" +
+                    "$translationFrameObserverAvailable result=$code",
+            )
+            return code
+        }
+        if (!translationFrameObserverAvailable) {
+            Log.w(
+                RTC_DIAGNOSTIC_TAG,
+                "ARTC translation mode rejected because frame observer is unavailable",
+            )
+            return RTC_OPERATION_UNAVAILABLE
         }
         val code = runRtcOperation("setTranslationRemoteAudio") {
             engine.muteAllRemoteAudioPlaying(muteRemoteAudio)
@@ -2139,12 +2544,20 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         if (code == 0) {
             translationCaptureEnabled = true
             resetTranslationCaptureBuffer()
+            translationPlaybackWriteLogged = false
         }
+        Log.i(
+            RTC_DIAGNOSTIC_TAG,
+            "ARTC translation mode enabled=${code == 0} " +
+                "muteRemoteAudio=$muteRemoteAudio " +
+                "observer=$translationFrameObserverAvailable result=$code",
+        )
         return code
     }
 
     private fun disableTranslationModeForShutdown(engine: AliRtcEngine) {
         translationCaptureEnabled = false
+        translationFrameObserverAvailable = false
         resetTranslationCaptureBuffer()
         stopTranslationAudio()
         runRtcOperation("restoreRemoteAudioOnShutdown") {
@@ -2159,38 +2572,64 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
     ) {
         if (
             !translationCaptureEnabled ||
-            !isCurrentRtcCallback(engine, generation) ||
-            frame.sampleRate != 16_000 ||
-            frame.numChannels != 1
+            !isCurrentRtcCallback(engine, generation)
         ) {
             return
         }
+        // AliRTC 7.11 populates samplesPerSec for observed audio frames while
+        // sampleRate remains at its default value. Keep the fallback for SDK
+        // variants that still expose only the legacy field.
+        val sampleRate = frame.samplesPerSec.takeIf { it > 0 } ?: frame.sampleRate
+        if (!translationCaptureMetadataLogged) {
+            translationCaptureMetadataLogged = true
+            Log.i(
+                RTC_DIAGNOSTIC_TAG,
+                "ARTC translation audio frame samplesPerSec=${frame.samplesPerSec} " +
+                    "sampleRate=${frame.sampleRate} resolvedSampleRate=$sampleRate " +
+                    "channels=${frame.numChannels} bytesPerSample=${frame.bytesPerSample} " +
+                    "dataSize=${frame.dataSize} dataBytes=${frame.data?.size ?: 0}",
+            )
+        }
+        if (sampleRate != 16_000 || frame.numChannels != 1) return
         val data = frame.data ?: return
         val size = min(frame.dataSize.takeIf { it > 0 } ?: data.size, data.size)
         if (size <= 0) return
         val chunks = mutableListOf<ByteArray>()
         synchronized(translationCaptureLock) {
-            translationCaptureBuffer.write(data, 0, size)
-            val buffered = translationCaptureBuffer.toByteArray()
-            var offset = 0
-            while (buffered.size - offset >= TRANSLATION_CAPTURE_CHUNK_BYTES) {
-                chunks.add(
-                    buffered.copyOfRange(
-                        offset,
-                        offset + TRANSLATION_CAPTURE_CHUNK_BYTES,
-                    ),
+            var sourceOffset = 0
+            while (sourceOffset < size) {
+                val copySize = min(
+                    size - sourceOffset,
+                    TRANSLATION_CAPTURE_CHUNK_BYTES - translationCaptureBufferSize,
                 )
-                offset += TRANSLATION_CAPTURE_CHUNK_BYTES
-            }
-            translationCaptureBuffer.reset()
-            if (offset < buffered.size) {
-                translationCaptureBuffer.write(buffered, offset, buffered.size - offset)
+                data.copyInto(
+                    translationCaptureBuffer,
+                    destinationOffset = translationCaptureBufferSize,
+                    startIndex = sourceOffset,
+                    endIndex = sourceOffset + copySize,
+                )
+                translationCaptureBufferSize += copySize
+                sourceOffset += copySize
+                if (translationCaptureBufferSize == TRANSLATION_CAPTURE_CHUNK_BYTES) {
+                    chunks.add(translationCaptureBuffer.copyOf())
+                    translationCaptureBufferSize = 0
+                }
             }
         }
         for (chunk in chunks) {
             mainHandler.post {
                 if (translationCaptureEnabled && isCurrentRtcCallback(engine, generation)) {
-                    channel?.invokeMethod("audioFrame", chunk)
+                    val activeChannel = channel
+                    if (activeChannel != null) {
+                        if (!translationCaptureChunkLogged) {
+                            translationCaptureChunkLogged = true
+                            Log.i(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC translation audio chunk dispatched bytes=${chunk.size}",
+                            )
+                        }
+                        activeChannel.invokeMethod("audioFrame", chunk)
+                    }
                 }
             }
         }
@@ -2198,7 +2637,9 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
 
     private fun resetTranslationCaptureBuffer() {
         synchronized(translationCaptureLock) {
-            translationCaptureBuffer.reset()
+            translationCaptureBufferSize = 0
+            translationCaptureMetadataLogged = false
+            translationCaptureChunkLogged = false
         }
     }
 
@@ -2222,7 +2663,14 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                     } else {
                         ensureTranslationAudioTrack(sampleRate)
                     }
-                } ?: return@execute
+                }
+                if (track == null) {
+                    Log.w(
+                        RTC_DIAGNOSTIC_TAG,
+                        "ARTC translated audio track unavailable sampleRate=$sampleRate",
+                    )
+                    return@execute
+                }
                 if (!translationCaptureEnabled || generation != translationPlaybackGeneration) {
                     return@execute
                 }
@@ -2231,9 +2679,45 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
                     // Do not hold translationPlaybackLock across WRITE_BLOCKING.
                     // Teardown can detach/release the track immediately, which
                     // unblocks this write instead of delaying RTC destruction.
-                    track.write(audio, 0, audio.size, AudioTrack.WRITE_BLOCKING)
-                } catch (_: IllegalStateException) {
+                    var offset = 0
+                    while (
+                        offset < audio.size &&
+                        translationCaptureEnabled &&
+                        generation == translationPlaybackGeneration
+                    ) {
+                        val written = track.write(
+                            audio,
+                            offset,
+                            audio.size - offset,
+                            AudioTrack.WRITE_BLOCKING,
+                        )
+                        if (written <= 0) {
+                            Log.w(
+                                RTC_DIAGNOSTIC_TAG,
+                                "ARTC translated audio write failed result=$written " +
+                                    "remaining=${audio.size - offset} sampleRate=$sampleRate " +
+                                    "state=${track.state} playState=${track.playState} " +
+                                    "underruns=${track.underrunCount}",
+                            )
+                            break
+                        }
+                        offset += written
+                    }
+                    if (offset == audio.size && !translationPlaybackWriteLogged) {
+                        translationPlaybackWriteLogged = true
+                        Log.i(
+                            RTC_DIAGNOSTIC_TAG,
+                            "ARTC first translated audio write bytes=${audio.size} " +
+                                "sampleRate=$sampleRate underruns=${track.underrunCount}",
+                        )
+                    }
+                } catch (error: IllegalStateException) {
                     // Teardown may release the track while a write is in flight.
+                    Log.w(
+                        RTC_DIAGNOSTIC_TAG,
+                        "ARTC translated audio write interrupted " +
+                            "type=${error.javaClass.simpleName}",
+                    )
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -2320,6 +2804,8 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
 
     private fun shutdownRtc(onComplete: (() -> Unit)? = null) {
         if (onComplete != null) shutdownCallbacks.add(onComplete)
+        cancelJoinCallbackTimeout()
+        invalidateCameraSafetyConfirmation()
         val engine = rtcEngine
         if (engine == null) {
             clearVideoRenderViews(null)
@@ -2441,6 +2927,8 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         localVideoPublished = false
         localMicMuted = false
         joinedStateEmitted = false
+        cancelJoinCallbackTimeout()
+        invalidateCameraSafetyConfirmation()
         remoteOnlineUsers.clear()
         remoteAudioSubscribedUsers.clear()
         announcedRemoteUsers.clear()
@@ -2476,6 +2964,9 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         channel = null
         audioCueChannel?.setMethodCallHandler(null)
         audioCueChannel = null
+        PushNotificationBridge.detach(pushNotificationChannel)
+        pushNotificationChannel?.setMethodCallHandler(null)
+        pushNotificationChannel = null
         stopRingbackTone()
         stopIncomingRingtone()
         shutdownRtc()
@@ -2487,9 +2978,21 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         const val RTC_DIAGNOSTIC_TAG = "RuscnyARTC"
         const val RTC_VIDEO_VIEW_TYPE = "com.tooyei.translator/rtc_video"
         const val RTC_OPERATION_UNAVAILABLE = -1
+        const val RTC_DEVICE_RECORDING_VOLUME = 100
+        const val RTC_EMULATOR_RECORDING_VOLUME = 200
+        const val ERR_CAMERA_OPEN_FAIL = 17_039_620
+        const val ERR_CAMERA_INTERRUPT = 17_039_622
+        const val ERR_VIDEO_DISPLAY_OPEN_FAIL = 17_039_873
+        const val ERR_VIDEO_DISPLAY_INTERRUPT = 17_039_874
+        const val ERR_PUBLISH_VIDEO_STREAM_FAILED = 16_843_857
+        const val ERR_PUBLISH_DUAL_STREAM_FAILED = 16_843_858
+        const val ERR_SUBSCRIBE_VIDEO_STREAM_FAILED = 16_844_114
+        const val ERR_SUBSCRIBE_DUAL_STREAM_FAILED = 16_844_115
         const val GLOBAL_ENGINE_WAIT_TIMEOUT_MS = 6_000L
         const val GLOBAL_ENGINE_WAIT_POLL_MS = 100L
+        const val JOIN_CALLBACK_TIMEOUT_MS = 15_000L
         const val MEDIA_PUBLISH_TIMEOUT_MS = 9_000L
+        const val CAMERA_SHUTDOWN_CONFIRM_DELAY_MS = 300L
         const val TRANSLATION_CAPTURE_CHUNK_BYTES = 3_200
         const val MAX_TRANSLATION_AUDIO_BYTES = 384_000
         const val RINGBACK_VOLUME = 55
@@ -2497,8 +3000,5 @@ class MainActivity : FlutterActivity(), RtcVideoViewHost {
         const val RINGBACK_INTERVAL_MS = 3_000L
         const val TALK_READY_VOLUME = 80
         const val TALK_READY_DURATION_MS = 180
-        const val INCOMING_CALL_PREFERENCES = "incoming_call_actions"
-        const val INCOMING_CALL_ACTION_KEY = "action"
-        const val INCOMING_CALL_ID_KEY = "call_id"
     }
 }

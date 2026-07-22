@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -21,6 +21,76 @@ const friendCallRingingTimeout = Duration(seconds: 60);
 const friendCallPeerJoinTimeout = Duration(seconds: 30);
 const friendCallPeerLeaveGrace = Duration(seconds: 5);
 const friendCallPeerRecoveryTimeout = Duration(seconds: 20);
+const friendCallTranslationRecoveryDelays = <Duration>[
+  Duration(seconds: 1),
+  Duration(seconds: 2),
+  Duration(seconds: 4),
+  Duration(seconds: 8),
+  Duration(seconds: 15),
+  Duration(seconds: 30),
+  Duration(seconds: 60),
+];
+
+Duration friendCallTranslationRecoveryDelay(int failedAttempts) {
+  final index = (failedAttempts - 1)
+      .clamp(
+        0,
+        friendCallTranslationRecoveryDelays.length - 1,
+      )
+      .toInt();
+  return friendCallTranslationRecoveryDelays[index];
+}
+
+bool canRecoverFriendCallTranslation({
+  required bool ending,
+  required bool callActive,
+  required bool rtcJoined,
+  required bool peerPresent,
+}) =>
+    !ending && callActive && rtcJoined && peerPresent;
+
+const retryableFriendCallTranslationErrorCodes = {
+  'REALTIME_TRANSLATION_FAILED',
+  'REALTIME_NOT_CONNECTED',
+  'REALTIME_CONNECT_TIMEOUT',
+  'REALTIME_TRANSLATION_STARTING',
+};
+
+bool isRetryableFriendCallTranslationCode(String? code) =>
+    retryableFriendCallTranslationErrorCodes.contains(code);
+
+bool isRetryableFriendCallTranslationError(Object error) =>
+    error is TimeoutException ||
+    (error is AppException && isRetryableFriendCallTranslationCode(error.code));
+
+String? friendCallTranslationPlaybackErrorCode(Object error) {
+  if (error is AppException) return error.code;
+  if (error is PlatformException) return error.code;
+  return null;
+}
+
+final class FriendCallTranslationAudioQueue {
+  Future<void> _tail = Future.value();
+  int _generation = 0;
+
+  bool isCurrent(int generation) => generation == _generation;
+
+  void invalidate() {
+    _generation += 1;
+  }
+
+  Future<void> enqueue(
+    Future<void> Function(int generation) task,
+  ) {
+    final generation = _generation;
+    final result = _tail.then((_) async {
+      if (!isCurrent(generation)) return;
+      await task(generation);
+    });
+    _tail = result.catchError((_) {});
+    return result;
+  }
+}
 
 enum FriendCallRingTimeoutDecision {
   join,
@@ -179,6 +249,19 @@ bool shouldSuspendRtcCamera({
     isVideo &&
     cameraEnabled;
 
+String friendCallTranslationReadyStatus({
+  required bool prefersTranslatedAudio,
+  required bool? outputAudio,
+}) {
+  if (!prefersTranslatedAudio) {
+    return '实时字幕已开启，译音频按个人偏好关闭';
+  }
+  if (outputAudio == false) {
+    return '实时字幕已开启，译音频暂时不可用';
+  }
+  return '中俄实时翻译已开启';
+}
+
 final class FriendCallPage extends ConsumerStatefulWidget {
   const FriendCallPage({required this.initialCall, super.key});
 
@@ -231,8 +314,16 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
   Stopwatch? _peerRecoveryClock;
   int _heartbeatFailures = 0;
   RtcCredential? _credential;
+  int _translationAttempt = 0;
   bool _translationStarting = false;
   bool _translationEnabled = false;
+  bool _translationRecoveryActive = false;
+  bool _translationRestoreInFlight = false;
+  int _translationRecoveryFailures = 0;
+  Timer? _translationRecoveryTimer;
+  Timer? _translationStabilityTimer;
+  DateTime? _translationSessionStartedAt;
+  final _translationAudioPlaybackQueue = FriendCallTranslationAudioQueue();
   bool _playTranslatedAudio = true;
   bool _translatedAudioActivated = false;
   String _translationStatus = '实时翻译等待通话连接';
@@ -265,8 +356,12 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
       socialRealtimeProvider.select((state) => state.connected),
       (previous, connected) {
         if (!mounted) return;
-        if (!connected && _translationEnabled) {
-          _disableRealtimeTranslation('实时连接中断，已恢复原声通话');
+        debugPrint('RUSCNY translation socket connected=$connected');
+        if (!connected && (_translationEnabled || _translationStarting)) {
+          _disableRealtimeTranslation(
+            '实时连接中断，已恢复原声通话',
+            reasonCode: 'socket_disconnected',
+          );
         } else if (connected && previous == false && _call.isActive) {
           unawaited(_startRealtimeTranslation());
         }
@@ -301,6 +396,7 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
           'peer_joined' => '通话中',
           'peer_left' => '对方网络中断，等待重连',
           'reconnecting' => '网络波动，正在重连',
+          'video_degraded' => '视频不可用，已保持语音通话',
           'error' => state.userMessage,
           _ => _connectionState,
         };
@@ -383,6 +479,10 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      _socialRealtime.reconnectNow();
+      if (_call.isActive && _rtcJoined && _peerPresent) {
+        unawaited(_startRealtimeTranslation());
+      }
       unawaited(_restoreCameraAfterResume());
       _showPendingCameraDisabledNotice();
     }
@@ -699,6 +799,7 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
   Future<void> _startRealtimeTranslation() async {
     if (_translationStarting ||
         _translationEnabled ||
+        _translationRestoreInFlight ||
         !_call.isActive ||
         !_rtcJoined ||
         !_peerPresent) {
@@ -713,10 +814,27 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
       }
       return;
     }
+    _translationRecoveryTimer?.cancel();
+    _translationRecoveryTimer = null;
+    final attempt = ++_translationAttempt;
     _translationStarting = true;
-    if (mounted) setState(() => _translationStatus = '正在连接实时翻译');
+    if (mounted) {
+      setState(() {
+        _translationStatus =
+            _translationRecoveryActive ? '实时翻译正在自动恢复' : '正在连接实时翻译';
+      });
+    }
     try {
       final ready = await _socialRealtime.startCallTranslation(_call.id);
+      if (!_translationAttemptIsCurrent(attempt)) {
+        if (_ending || !_call.isActive || !_peerPresent) {
+          _socialRealtime.finishCallTranslation(
+            _call.id,
+            reasonCode: 'stale_start',
+          );
+        }
+        return;
+      }
       await _rtc.setTranslationMode(
         true,
         // Keep the original remote voice until the first translated PCM chunk
@@ -724,16 +842,38 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
         // is running an older client that cannot upload translation audio.
         muteRemoteAudio: false,
       );
-      if (!mounted) return;
+      if (!_translationAttemptIsCurrent(attempt)) {
+        if (_ending || !_call.isActive || !_peerPresent) {
+          try {
+            await _rtc.setTranslationMode(false);
+          } catch (_) {
+            // Call teardown remains authoritative if native RTC already left.
+          }
+        }
+        return;
+      }
       setState(() {
         _translationEnabled = true;
+        _translationSessionStartedAt = DateTime.now();
         _sourceLanguage = ready.sourceLanguage ?? _sourceLanguage;
         _targetLanguage = ready.targetLanguage ?? _targetLanguage;
-        _translationStatus =
-            !_playTranslatedAudio ? '实时字幕已开启，译音频按个人偏好关闭' : '中俄实时翻译已开启';
+        _translationStatus = friendCallTranslationReadyStatus(
+          prefersTranslatedAudio: _playTranslatedAudio,
+          outputAudio: ready.outputAudio,
+        );
       });
+      _cancelTranslationRecovery(resetFailures: false);
+      _scheduleTranslationStabilityReset(attempt);
+      debugPrint('RUSCNY translation ready outputAudio=${ready.outputAudio}');
     } catch (error) {
-      _socialRealtime.finishCallTranslation(_call.id);
+      if (attempt != _translationAttempt) return;
+      debugPrint(
+        'RUSCNY translation start failed type=${error.runtimeType}',
+      );
+      _socialRealtime.finishCallTranslation(
+        _call.id,
+        reasonCode: 'start_failed',
+      );
       try {
         await _rtc.setTranslationMode(false);
       } catch (routeError) {
@@ -748,9 +888,89 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
           _translationStatus = readableError(error);
         });
       }
+      if (isRetryableFriendCallTranslationError(error)) {
+        _scheduleTranslationRecovery(readableError(error));
+      } else {
+        _cancelTranslationRecovery();
+        debugPrint(
+          'RUSCNY translation permanent start failure '
+          'code=${error is AppException ? error.code : 'unknown'}',
+        );
+      }
     } finally {
-      _translationStarting = false;
+      if (attempt == _translationAttempt) _translationStarting = false;
     }
+  }
+
+  bool _translationAttemptIsCurrent(int attempt) =>
+      attempt == _translationAttempt &&
+      mounted &&
+      !_ending &&
+      _call.isActive &&
+      _rtcJoined &&
+      _peerPresent;
+
+  void _invalidateTranslationAttempt() {
+    _translationAttempt++;
+    _translationStarting = false;
+    _invalidateTranslationAudioPlayback();
+  }
+
+  void _cancelTranslationRecovery({bool resetFailures = true}) {
+    _translationRecoveryTimer?.cancel();
+    _translationRecoveryTimer = null;
+    _translationStabilityTimer?.cancel();
+    _translationStabilityTimer = null;
+    _translationRecoveryActive = false;
+    if (resetFailures) _translationRecoveryFailures = 0;
+  }
+
+  void _scheduleTranslationStabilityReset(int attempt) {
+    _translationStabilityTimer?.cancel();
+    _translationStabilityTimer = Timer(const Duration(seconds: 60), () {
+      _translationStabilityTimer = null;
+      if (attempt != _translationAttempt || !_translationEnabled || _ending) {
+        return;
+      }
+      _translationRecoveryFailures = 0;
+      debugPrint('RUSCNY translation stable; recovery backoff reset');
+    });
+  }
+
+  bool get _canRecoverTranslation => canRecoverFriendCallTranslation(
+        ending: _ending,
+        callActive: _call.isActive,
+        rtcJoined: _rtcJoined,
+        peerPresent: _peerPresent,
+      );
+
+  void _scheduleTranslationRecovery(String fallbackMessage) {
+    if (!mounted || !_canRecoverTranslation) {
+      if (mounted && !_ending) {
+        setState(() => _translationStatus = fallbackMessage);
+      }
+      return;
+    }
+    _translationRecoveryActive = true;
+    _translationRecoveryFailures += 1;
+    final delay = friendCallTranslationRecoveryDelay(
+      _translationRecoveryFailures,
+    );
+    _translationRecoveryTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _translationStatus = '翻译连接波动，${delay.inSeconds}秒后自动恢复（原声通话中）';
+      });
+    }
+    debugPrint(
+      'RUSCNY translation recovery scheduled '
+      'attempt=$_translationRecoveryFailures delay=${delay.inSeconds}s',
+    );
+    _translationRecoveryTimer = Timer(delay, () {
+      _translationRecoveryTimer = null;
+      if (!_canRecoverTranslation) return;
+      unawaited(_startRealtimeTranslation());
+    });
   }
 
   void _sendTranslationAudio(Uint8List audio) {
@@ -789,59 +1009,179 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
             event.audio?.isNotEmpty != true) {
           return;
         }
-        unawaited(_playTranslationAudioEvent(event));
+        _queueTranslationAudioEvent(event);
         break;
       case 'friend.call.translation.error':
+        debugPrint(
+          'RUSCNY translation server error code=${event.code ?? 'unknown'}',
+        );
         _disableRealtimeTranslation(
           event.message ?? '实时翻译服务暂时不可用，已恢复原声通话',
+          reasonCode: 'server_error',
+          errorCode: event.code,
+          recover: isRetryableFriendCallTranslationCode(event.code),
         );
         break;
       case 'friend.call.translation.finished':
-        _disableRealtimeTranslation('实时翻译已结束，当前为原声通话');
+        debugPrint('RUSCNY translation server finished unexpectedly');
+        _disableRealtimeTranslation(
+          '实时翻译已结束，当前为原声通话',
+          reasonCode: 'server_finished',
+        );
         break;
       default:
         break;
     }
   }
 
-  void _disableRealtimeTranslation(String message) {
+  void _disableRealtimeTranslation(
+    String message, {
+    required String reasonCode,
+    String? errorCode,
+    bool recover = true,
+  }) {
+    if (_ending || !_call.isActive) return;
+    final startedAt = _translationSessionStartedAt;
+    final elapsedMs = startedAt == null
+        ? 0
+        : DateTime.now().difference(startedAt).inMilliseconds;
+    final socketConnected = ref.read(socialRealtimeProvider).connected;
+    debugPrint(
+      'RUSCNY translation disabled reason=$reasonCode '
+      'code=${errorCode ?? 'none'} elapsedMs=$elapsedMs '
+      'socketConnected=$socketConnected rtcJoined=$_rtcJoined '
+      'peerPresent=$_peerPresent',
+    );
+    _translationSessionStartedAt = null;
     if (!_translationEnabled && !_translationStarting) {
+      if (_translationRecoveryActive || _translationRestoreInFlight) return;
       if (mounted) setState(() => _translationStatus = message);
+      if (recover) _scheduleTranslationRecovery(message);
       return;
     }
+    _invalidateTranslationAttempt();
     _translationEnabled = false;
-    _translationStarting = false;
     _translatedAudioActivated = false;
-    _socialRealtime.finishCallTranslation(_call.id);
+    _translationRecoveryActive = recover;
+    _translationRestoreInFlight = true;
+    _translationRecoveryTimer?.cancel();
+    _translationRecoveryTimer = null;
+    _translationStabilityTimer?.cancel();
+    _translationStabilityTimer = null;
+    _socialRealtime.finishCallTranslation(
+      _call.id,
+      reasonCode: reasonCode,
+    );
     if (mounted) setState(() => _translationStatus = '正在恢复原声通话');
-    unawaited(_restoreOriginalAudio(message));
+    final recoveryGeneration = _translationAttempt;
+    unawaited(
+      _restoreOriginalAudioAndRecover(
+        message,
+        recoveryGeneration,
+        recover: recover,
+      ),
+    );
   }
 
-  Future<void> _restoreOriginalAudio(String successMessage) async {
+  Future<void> _restoreOriginalAudioAndRecover(
+    String successMessage,
+    int recoveryGeneration, {
+    required bool recover,
+  }) async {
     try {
       await _rtc.setTranslationMode(false);
-      if (mounted && !_ending) {
-        setState(() => _translationStatus = successMessage);
-      }
     } catch (error) {
       if (mounted && !_ending) {
         await _handleRtcFailure(readableError(error));
       }
+      return;
+    } finally {
+      if (recoveryGeneration == _translationAttempt) {
+        _translationRestoreInFlight = false;
+      }
     }
+    if (recoveryGeneration != _translationAttempt || !mounted || _ending) {
+      return;
+    }
+    if (recover) {
+      _scheduleTranslationRecovery(successMessage);
+    } else {
+      setState(() => _translationStatus = successMessage);
+    }
+  }
+
+  void _queueTranslationAudioEvent(FriendCallTranslationEvent event) {
+    unawaited(_translationAudioPlaybackQueue.enqueue((generation) async {
+      if (!_translationAudioTaskIsCurrent(generation)) return;
+      await _playTranslationAudioEvent(event, generation);
+    }));
+  }
+
+  bool _translationAudioTaskIsCurrent(int generation) =>
+      _translationAudioPlaybackQueue.isCurrent(generation) &&
+      _translationEnabled &&
+      _playTranslatedAudio &&
+      !_ending;
+
+  void _invalidateTranslationAudioPlayback() {
+    _translationAudioPlaybackQueue.invalidate();
+    _translatedAudioActivated = false;
   }
 
   Future<void> _playTranslationAudioEvent(
     FriendCallTranslationEvent event,
+    int generation,
   ) async {
     try {
       final audio = base64Decode(event.audio!);
+      if (!_translationAudioTaskIsCurrent(generation)) return;
       if (!_translatedAudioActivated) {
         _translatedAudioActivated = true;
         await _rtc.setTranslationMode(true, muteRemoteAudio: true);
+        if (!_translationAudioTaskIsCurrent(generation)) return;
       }
       await _rtc.playTranslationAudio(audio, event.sampleRate ?? 24000);
-    } catch (_) {
-      _disableRealtimeTranslation('译音频播放失败，已恢复原声通话');
+    } catch (error) {
+      if (!_translationAudioTaskIsCurrent(generation)) return;
+      final translationAttempt = _translationAttempt;
+      debugPrint(
+        'RUSCNY translated audio playback failed '
+        'type=${error.runtimeType} '
+        'code=${friendCallTranslationPlaybackErrorCode(error) ?? 'none'}',
+      );
+      await _degradeTranslatedAudioToSubtitles(translationAttempt);
+    }
+  }
+
+  Future<void> _degradeTranslatedAudioToSubtitles(
+    int translationAttempt,
+  ) async {
+    if (translationAttempt != _translationAttempt || !_translationEnabled) {
+      return;
+    }
+    _invalidateTranslationAudioPlayback();
+    _playTranslatedAudio = false;
+    try {
+      // Keep local PCM capture enabled for the peer's translation while the
+      // local side resumes original remote audio and continues with subtitles.
+      await _rtc.setTranslationMode(true, muteRemoteAudio: false);
+      if (mounted &&
+          !_ending &&
+          _translationEnabled &&
+          translationAttempt == _translationAttempt) {
+        setState(() {
+          _translationStatus = '译音频播放异常，已切换为原声和实时字幕';
+        });
+      }
+    } catch (error) {
+      if (translationAttempt != _translationAttempt || !_translationEnabled) {
+        return;
+      }
+      _disableRealtimeTranslation(
+        '实时翻译音频通道异常，已恢复原声通话',
+        reasonCode: 'playback_exception',
+        errorCode: friendCallTranslationPlaybackErrorCode(error),
+      );
     }
   }
 
@@ -1093,6 +1433,12 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
   void _markPeerDisconnected() {
     if (_ending) return;
     _peerPresent = false;
+    if (_translationEnabled || _translationStarting) {
+      _disableRealtimeTranslation(
+        '对方网络中断，实时翻译等待重连',
+        reasonCode: 'peer_disconnected',
+      );
+    }
     _peerJoinDeadline?.cancel();
     _peerRecoveryClock ??= Stopwatch()..start();
     _peerRecoveryTimer?.cancel();
@@ -1154,6 +1500,10 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
   Future<void> _remoteEnded(String message) async {
     if (_ending) return;
     _ending = true;
+    _invalidateTranslationAttempt();
+    _cancelTranslationRecovery();
+    _translationRestoreInFlight = false;
+    _translationEnabled = false;
     _rtcJoined = false;
     _rtcJoinPending = false;
     _rtcNativeReady = false;
@@ -1170,7 +1520,6 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
     );
     await AudioCueService.stopRingback();
     _socialRealtime.finishCallTranslation(_call.id);
-    _translationEnabled = false;
     try {
       await _rtc.setTranslationMode(false);
     } catch (_) {
@@ -1190,6 +1539,10 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
   Future<void> _endAndClose({bool notifyServer = true}) async {
     if (_ending) return;
     setState(() => _ending = true);
+    _invalidateTranslationAttempt();
+    _cancelTranslationRecovery();
+    _translationRestoreInFlight = false;
+    _translationEnabled = false;
     _rtcJoined = false;
     _rtcJoinPending = false;
     _rtcNativeReady = false;
@@ -1203,7 +1556,6 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
     _ringRecoveryTimer?.cancel();
     await AudioCueService.stopRingback();
     _socialRealtime.finishCallTranslation(_call.id);
-    _translationEnabled = false;
     if (notifyServer) {
       try {
         await _friendRepository.endCall(_call.id);
@@ -1234,9 +1586,12 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
   Future<void> _handleRtcFailure(String message) async {
     if (_handlingRtcFailure || _ending) return;
     _handlingRtcFailure = true;
+    _invalidateTranslationAttempt();
+    _cancelTranslationRecovery();
+    _translationRestoreInFlight = false;
+    _translationEnabled = false;
     await AudioCueService.stopRingback();
     _socialRealtime.finishCallTranslation(_call.id);
-    _translationEnabled = false;
     _rtcJoined = false;
     _rtcJoinPending = false;
     _rtcNativeReady = false;
@@ -1266,6 +1621,12 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
 
   @override
   void dispose() {
+    _ending = true;
+    _invalidateTranslationAttempt();
+    _cancelTranslationRecovery();
+    _translationRestoreInFlight = false;
+    _translationEnabled = false;
+    _socialRealtime.finishCallTranslation(_call.id);
     WidgetsBinding.instance.removeObserver(this);
     _connectionSubscription?.close();
     _callEventSubscription?.close();
@@ -1278,7 +1639,6 @@ final class _FriendCallPageState extends ConsumerState<FriendCallPage>
     _peerJoinDeadline?.cancel();
     _peerRecoveryTimer?.cancel();
     unawaited(AudioCueService.stopRingback());
-    _socialRealtime.finishCallTranslation(_call.id);
     unawaited(_rtc.dispose());
     super.dispose();
   }

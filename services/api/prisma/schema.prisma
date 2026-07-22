@@ -154,6 +154,11 @@ enum FriendCallMediaType {
   VIDEO
 }
 
+enum FriendCallPushKind {
+  INCOMING
+  CANCEL
+}
+
 model User {
   id                                 String                     @id @default(cuid())
   role                               UserRole
@@ -201,6 +206,7 @@ model User {
   outgoingFriendCalls                FriendCall[]               @relation("FriendCallCaller")
   incomingFriendCalls                FriendCall[]               @relation("FriendCallCallee")
   endedFriendCalls                   FriendCall[]               @relation("FriendCallEndedBy")
+  friendCallPushJobs                 FriendCallPushJob[]        @relation("FriendCallPushRecipient")
 }
 
 model UserDevice {
@@ -209,7 +215,9 @@ model UserDevice {
   deviceId         String
   sessionId        String         @default(cuid())
   platform         DevicePlatform @default(UNKNOWN)
-  pushToken        String?
+  pushToken        String?        @unique
+  pushBindingId    String?        @unique
+  pushTokenUpdatedAt DateTime?
   refreshTokenHash String?
   refreshTokenJti  String?
   authenticatedAt  DateTime       @default(now())
@@ -652,12 +660,34 @@ model FriendCall {
   caller            User                @relation("FriendCallCaller", fields: [callerId], references: [id], onDelete: Cascade)
   callee            User                @relation("FriendCallCallee", fields: [calleeId], references: [id], onDelete: Cascade)
   endedBy           User?               @relation("FriendCallEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+  pushJobs          FriendCallPushJob[]
 
   @@index([callerId, status, updatedAt])
   @@index([calleeId, status, updatedAt])
   @@index([status, lastHeartbeatAt])
   @@index([status, callerHeartbeatAt])
   @@index([status, calleeHeartbeatAt])
+}
+
+model FriendCallPushJob {
+  id              String             @id @default(cuid())
+  callId          String
+  recipientUserId String
+  kind            FriendCallPushKind
+  targetSnapshot  Json?
+  attempts        Int                @default(0)
+  nextAttemptAt   DateTime           @default(now())
+  lockedAt        DateTime?
+  lastError       String?
+  expiresAt       DateTime
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  call            FriendCall         @relation(fields: [callId], references: [id], onDelete: Cascade)
+  recipient       User               @relation("FriendCallPushRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, recipientUserId, kind])
+  @@index([nextAttemptAt, lockedAt])
+  @@index([recipientUserId, createdAt])
 }
 
 model MeetingInvitation {
