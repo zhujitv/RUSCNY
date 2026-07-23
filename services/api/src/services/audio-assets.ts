@@ -47,22 +47,7 @@ async function s3(): Promise<{ client: S3Client; bucket: string }> {
 }
 
 export async function persistTtsAudio(upstreamUrl: string): Promise<string> {
-  let url: URL;
-  try {
-    url = new URL(upstreamUrl);
-  } catch {
-    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
-  }
-  if (!isAliyunAssetHost(url.hostname)) {
-    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
-  }
-  // DashScope currently returns a short-lived HTTP URL on its own Beijing OSS
-  // result host. Upgrade only after the hostname has passed the exact Aliyun
-  // boundary check; arbitrary HTTP origins remain rejected.
-  if (url.protocol === 'http:') url.protocol = 'https:';
-  if (url.protocol !== 'https:') {
-    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
-  }
+  const url = trustedTtsAudioUrl(upstreamUrl);
 
   let response: Response;
   try {
@@ -113,6 +98,46 @@ export async function persistTtsAudio(upstreamUrl: string): Promise<string> {
     await writeFile(path.join(config.AUDIO_LOCAL_DIRECTORY, key), bytes, { flag: 'wx' });
   }
   return `${assetPrefix}${key}`;
+}
+
+/**
+ * Accepts only a DashScope/Aliyun media origin and returns an HTTPS URL.
+ * Stored meeting speech passes this boundary before the service downloads and
+ * validates the media bytes.
+ */
+export function trustedTtsAudioUrl(upstreamUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(upstreamUrl);
+  } catch {
+    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
+  }
+  if (!isAliyunAssetHost(url.hostname)) {
+    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
+  }
+  // DashScope currently returns a short-lived HTTP URL on its own Beijing OSS
+  // result host. Upgrade only after the hostname has passed the exact Aliyun
+  // boundary check; arbitrary HTTP origins remain rejected.
+  if (url.protocol === 'http:') url.protocol = 'https:';
+  if (url.protocol !== 'https:') {
+    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
+  }
+  return url;
+}
+
+/**
+ * A transient face-to-face URL is opened by the mobile media decoder instead
+ * of being downloaded and inspected by this service. Keep that client-facing
+ * boundary limited to the result buckets documented for the configured China
+ * DashScope TTS models.
+ */
+export function trustedTransientTtsAudioUrl(upstreamUrl: string): URL {
+  const url = trustedTtsAudioUrl(upstreamUrl);
+  const hostname = url.hostname.toLowerCase();
+  if (!transientDashScopeResultHosts.has(hostname)) {
+    throw new AppError(502, 'TTS_ASSET_REJECTED', '语音服务返回了不可信的音频地址');
+  }
+  return url;
 }
 
 export function playableAudioUrl(storedValue: string | null): string | null {
@@ -227,6 +252,11 @@ function isAliyunAssetHost(hostname: string): boolean {
     normalized === 'aliyun.com' ||
     normalized.endsWith('.aliyun.com');
 }
+
+const transientDashScopeResultHosts = new Set([
+  'dashscope-result-bj.oss-cn-beijing.aliyuncs.com',
+  'dashscope-result-wlcb.oss-cn-wulanchabu.aliyuncs.com',
+]);
 
 function parseAudioContentType(value: string | undefined | null): string | null {
   const contentType = value?.split(';', 1)[0]?.trim().toLowerCase();

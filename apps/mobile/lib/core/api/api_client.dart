@@ -179,6 +179,7 @@ final class ApiClient {
     Object? data,
     Options? options,
     ProgressCallback? onSendProgress,
+    CancelToken? cancelToken,
   }) async {
     try {
       final response = await _dio.post<dynamic>(
@@ -186,6 +187,7 @@ final class ApiClient {
         data: data,
         options: options,
         onSendProgress: onSendProgress,
+        cancelToken: cancelToken,
       );
       return unwrapMap(response.data);
     } on DioException catch (error) {

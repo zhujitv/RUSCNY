@@ -820,9 +820,9 @@ final class RoomController extends StateNotifier<RoomState> {
       return;
     }
     final sourceLanguage = state.inputLanguage;
-    String? path;
+    RecordedAudioSegment? segment;
     try {
-      path = await _audioCapture.stop();
+      segment = await _audioCapture.stop();
     } catch (error) {
       if (!_disposed) {
         state = state.copyWith(
@@ -833,15 +833,27 @@ final class RoomController extends StateNotifier<RoomState> {
       return;
     }
     if (_disposed) {
-      if (path != null) await _audioCapture.deleteSegment(path);
+      if (segment != null) {
+        await _audioCapture.deleteSegment(segment.path);
+      }
       return;
     }
-    if (path == null) {
+    if (segment == null) {
       state = state.copyWith(action: RoomAction.idle, error: '录音失败，请重试');
       return;
     }
+    if (!segment.hasMeaningfulSpeech) {
+      await _audioCapture.deleteSegment(segment.path);
+      if (!_disposed) {
+        state = state.copyWith(
+          action: RoomAction.idle,
+          error: '未检测到说话，未发送',
+        );
+      }
+      return;
+    }
     final pending = _PendingAudio(
-      path: path,
+      path: segment.path,
       sourceLanguage: sourceLanguage,
       idempotencyKey: const Uuid().v4(),
     );
