@@ -28,7 +28,7 @@ final class AudioPlaybackQueue {
     final generation = _generation;
     _tail = _tail.catchError((_) {}).then((_) async {
       if (!_disposed && generation == _generation) {
-        await _play(url, generation);
+        await _play(url, generation, authenticated: true);
       }
     });
   }
@@ -38,7 +38,17 @@ final class AudioPlaybackQueue {
     await stop();
     if (_disposed) return;
     final generation = _generation;
-    await _play(url, generation);
+    await _play(url, generation, authenticated: true);
+  }
+
+  /// Plays a short-lived URL issued directly by a trusted media provider.
+  /// App bearer tokens must never be forwarded to that external origin.
+  Future<void> playPublicNow(String url) async {
+    if (_disposed || url.isEmpty) return;
+    await stop();
+    if (_disposed) return;
+    final generation = _generation;
+    await _play(url, generation, authenticated: false);
   }
 
   /// Stops the active item and invalidates every item waiting in the old
@@ -50,11 +60,15 @@ final class AudioPlaybackQueue {
     await _player.stop();
   }
 
-  Future<void> _play(String url, int generation) async {
+  Future<void> _play(
+    String url,
+    int generation, {
+    required bool authenticated,
+  }) async {
     if (_disposed || generation != _generation) return;
     await _player.setSpeed(_speed);
     if (_disposed || generation != _generation) return;
-    final token = await _accessToken?.call();
+    final token = authenticated ? await _accessToken?.call() : null;
     if (_disposed || generation != _generation) return;
     await _player.setUrl(
       url,

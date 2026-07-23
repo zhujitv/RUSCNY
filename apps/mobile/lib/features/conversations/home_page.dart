@@ -5,6 +5,7 @@ import '../../core/localization/app_localization.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../contacts/contacts_page.dart';
+import '../face_to_face/face_to_face_page.dart';
 import '../friends/friends_page.dart';
 import '../friends/social_realtime_controller.dart';
 import '../history/history_page.dart';
@@ -131,6 +132,18 @@ final class _HomePageState extends ConsumerState<HomePage> {
             guest ? '访客身份只用于当前会议。' : '发起自己的会议，或加入好友邀请的会议。',
           ),
           const SizedBox(height: 18),
+          if (!guest)
+            _PrimaryAction(
+              icon: Icons.record_voice_over_outlined,
+              title: '面对面翻译',
+              subtitle: '同一台手机 · 无需房间或好友',
+              onTap: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const FaceToFacePage(),
+                ),
+              ),
+            ),
           if (!guest)
             _PrimaryAction(
               icon: Icons.add_comment_outlined,

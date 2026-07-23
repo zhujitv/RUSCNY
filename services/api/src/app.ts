@@ -25,6 +25,7 @@ import { registerMessageReviewRoutes } from './routes/message-reviews.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerSocialRoutes } from './routes/social.js';
 import { registerFriendCallRoutes } from './routes/friend-calls.js';
+import { registerFaceToFaceRoutes } from './routes/face-to-face.js';
 import { registerSummaryEmailRoutes } from './routes/summary-email.js';
 import { registerWebGuestRoutes } from './routes/web-guest.js';
 import { assertRuntimeServiceConfigurationReady } from './services/service-configuration.js';
@@ -163,6 +164,7 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
   await registerMessageRoutes(app);
   await registerSocialRoutes(app);
   await registerFriendCallRoutes(app);
+  await registerFaceToFaceRoutes(app);
   await registerSummaryEmailRoutes(app);
 
   app.setNotFoundHandler(async (_request, reply) => {

@@ -60,4 +60,33 @@ void main() {
     // guard all stop the player.
     verify(() => player.stop()).called(3);
   });
+
+  test('public provider audio never receives the app bearer token', () async {
+    final player = _MockAudioPlayer();
+    var tokenReads = 0;
+    when(() => player.stop()).thenAnswer((_) async {});
+    when(() => player.setSpeed(any())).thenAnswer((_) async {});
+    when(
+      () => player.setUrl(any(), headers: any(named: 'headers')),
+    ).thenAnswer((_) async => null);
+    when(() => player.play()).thenAnswer((_) async {});
+    final queue = AudioPlaybackQueue(
+      player: player,
+      accessToken: () async {
+        tokenReads += 1;
+        return 'private-app-token';
+      },
+    );
+
+    await queue.playPublicNow('https://provider.example/temporary.mp3');
+
+    expect(tokenReads, 0);
+    verify(
+      () => player.setUrl(
+        'https://provider.example/temporary.mp3',
+        headers: null,
+      ),
+    ).called(1);
+    verify(() => player.play()).called(1);
+  });
 }
